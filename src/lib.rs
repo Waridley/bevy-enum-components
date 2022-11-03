@@ -124,7 +124,7 @@ pub mod tests {
 				}
 				FooItem::Things(Things { stuff: 42 }) => {
 					let t = t.time_since_startup();
-					assert!(dbg!(t) > Duration::from_secs_f32(1.42), "{t:?}");
+					assert!(t > Duration::from_secs_f32(1.42), "{t:?}");
 					app_exit_events.send(AppExit);
 					cmds.set_enum(Foo::Bar);
 				}
