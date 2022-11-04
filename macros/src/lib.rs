@@ -392,7 +392,6 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		vis,
 		component_ident,
 		state_ident,
 		query_ident,
@@ -404,34 +403,32 @@ fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 		..
 	} = ctx;
 
-	//TODO: Should all of these types match #vis?
-
 	let len = variant_idents.len();
 	let state_fields = vec![quote! { ::#_crate::bevy_ecs::component::ComponentId }; len];
 	let state_alias = quote! {
-		#vis type #state_ident = (#(#state_fields),*);
+		type #state_ident = (#(#state_fields),*);
 	};
 
 	let read_only_aliases = quote! {
-		#vis type #query_ident<'w> = (
+		type #query_ident<'w> = (
 			#(Option<&'w #component_ident<#variant_idents>>,)*
 		);
 
-		#vis type #fetch_ident<'w> = (
+		type #fetch_ident<'w> = (
 			#(::bevy::ecs::query::OptionFetch<'w, &'w #component_ident<#variant_idents>>,)*
 		);
 	};
 
 	let mut_aliases = quote! {
-		#vis type #query_mut_ident<'w> = (
+		type #query_mut_ident<'w> = (
 			#(Option<&'w mut #component_ident<#variant_idents>>,)*
 		);
 
-		#vis type #fetch_mut_ident<'w> = (
+		type #fetch_mut_ident<'w> = (
 			#(::bevy::ecs::query::OptionFetch<'w, &'w mut #component_ident<#variant_idents>>,)*
 		);
 
-		#vis type #fetch_mut_item_ident<'w> = (
+		type #fetch_mut_item_ident<'w> = (
 			#(Option<::#_crate::bevy_ecs::world::Mut<'w, #component_ident<#variant_idents>>>,)*
 		);
 	};
