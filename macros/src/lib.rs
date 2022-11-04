@@ -18,6 +18,7 @@ struct Context<'data> {
 	mod_ident: Ident,
 	variant_trait_ident: Ident,
 	type_enum_ident: Ident,
+	type_method_ident: Ident,
 	component_ident: Ident,
 	state_ident: Ident,
 	item_ident: Ident,
@@ -60,6 +61,7 @@ pub fn derive_enum_component(input: TokenStream) -> TokenStream {
 		}
 	};
 
+	let type_enum_ident = format_ident!("{ident}Type");
 	let ctx = Context {
 		_crate,
 		attrs,
@@ -67,7 +69,8 @@ pub fn derive_enum_component(input: TokenStream) -> TokenStream {
 		generics,
 		mod_ident: format_ident!("{}", ident.to_string().to_case(Snake)),
 		variant_trait_ident: format_ident!("{ident}Variant"),
-		type_enum_ident: format_ident!("{ident}Type"),
+		type_method_ident: format_ident!("{}", type_enum_ident.to_string().to_case(Snake)),
+		type_enum_ident,
 		component_ident: format_ident!("{ident}Component"),
 		state_ident: format_ident!("{ident}State"),
 		item_ident: format_ident!("{ident}Item"),
@@ -88,13 +91,40 @@ pub fn derive_enum_component(input: TokenStream) -> TokenStream {
 	module(&ctx).into_token_stream().into()
 }
 
-fn trait_impl(ctx: &Context) -> impl ToTokens {
+fn module(ctx: &Context) -> impl ToTokens {
+	let enum_impls = enum_impls(&ctx);
+	let type_enum = type_enum(&ctx);
+	let component_decl = component_decl(ctx);
+	let variant_trait_decl = variant_trait_decl(ctx);
+	let variant_struct_decls = variant_struct_decls(ctx);
+	let world_query_impls = world_query_impls(&ctx);
+	let variant_world_query_impls = variant_world_query_impls(&ctx);
+	let Context { vis, mod_ident, .. } = ctx;
+
+	quote! {
+		#vis mod #mod_ident {
+			use super::*;
+			#enum_impls
+			#type_enum
+			#component_decl
+			#variant_trait_decl
+			#(#variant_struct_decls)*
+			#world_query_impls
+			#variant_world_query_impls
+		}
+	}
+}
+
+fn enum_impls(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
+		vis,
 		enum_ident,
-		data,
+		type_enum_ident,
+		type_method_ident,
 		component_ident,
 		variant_idents,
+		data,
 		..
 	} = ctx;
 
@@ -127,6 +157,15 @@ fn trait_impl(ctx: &Context) -> impl ToTokens {
 		})
 		.collect::<Vec<_>>();
 
+	let type_match_arms = data.variants.iter().map(|v| {
+		let ident = &v.ident;
+		match v.fields {
+			Fields::Named(..) => quote! { Self::#ident { .. } => #type_enum_ident::#ident },
+			Fields::Unnamed(..) => quote! { Self::#ident(..) => #type_enum_ident::#ident },
+			Fields::Unit => quote! { Self::#ident => #type_enum_ident::#ident },
+		}
+	});
+
 	quote! {
 		impl ::#_crate::EnumComponent for #enum_ident {
 			fn dispatch_to(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
@@ -139,6 +178,14 @@ fn trait_impl(ctx: &Context) -> impl ToTokens {
 			fn remove_from(cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
 				cmds
 					#(.remove::<#component_ident<#variant_idents>>())*;
+			}
+		}
+
+		impl #enum_ident {
+			#vis fn #type_method_ident(&self) -> #type_enum_ident {
+				match self {
+					#(#type_match_arms),*
+				}
 			}
 		}
 	}
@@ -182,8 +229,8 @@ fn type_enum(ctx: &Context) -> impl ToTokens {
 			}
 		}
 
-		impl<'w> From<&'w #item_ident<'w>> for #type_enum_ident {
-			fn from(value: &'w #item_ident) -> Self {
+		impl From<&#item_ident<'_>> for #type_enum_ident {
+			fn from(value: &#item_ident) -> Self {
 				match value {
 					#(#item_match_arms),*
 				}
@@ -210,6 +257,8 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 		_crate,
 		vis,
 		enum_ident,
+		type_enum_ident,
+		type_method_ident,
 		item_ident,
 		query_ident,
 		item_mut_ident,
@@ -256,11 +305,23 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 				},
 			]
 		});
-	let item_from_query_impl = quote! {
+	let type_match_arms = variant_idents.iter().map(|v| {
+		quote! { Self::#v(..) => #type_enum_ident::#v }
+	});
+	let type_mut_match_arms = type_match_arms.clone();
+	let item_impls = quote! {
 		impl<'w> From<#query_ident<'w>> for #item_ident<'w> {
 			fn from(fetch: #query_ident<'w>) -> Self {
 				match fetch {
 					#(#match_arms),*
+				}
+			}
+		}
+
+		impl #item_ident<'_> {
+			#vis fn #type_method_ident(&self) -> #type_enum_ident {
+				match self {
+					#(#type_match_arms),*
 				}
 			}
 		}
@@ -302,7 +363,7 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 				},
 			]
 		});
-	let item_mut_from_fetch_mut_impl = quote! {
+	let item_mut_impls = quote! {
 		impl<'w> From<#fetch_mut_item_ident<'w>> for #item_mut_ident<'w> {
 			fn from(fetch: #fetch_mut_item_ident<'w>) -> #item_mut_ident<'w> {
 				match fetch {
@@ -310,13 +371,21 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 				}
 			}
 		}
+
+		impl #item_mut_ident<'_> {
+			#vis fn #type_method_ident(&self) -> #type_enum_ident {
+				match self {
+					#(#type_mut_match_arms),*
+				}
+			}
+		}
 	};
 
 	quote! {
 		#item
-		#item_from_query_impl
+		#item_impls
 		#item_mut
-		#item_mut_from_fetch_mut_impl
+		#item_mut_impls
 	}
 }
 
@@ -878,30 +947,6 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 	}
 }
 
-fn module(ctx: &Context) -> impl ToTokens {
-	let trait_impl = trait_impl(&ctx);
-	let type_enum = type_enum(&ctx);
-	let component_decl = component_decl(ctx);
-	let variant_trait_decl = variant_trait_decl(ctx);
-	let variant_struct_decls = variant_struct_decls(ctx);
-	let world_query_impls = world_query_impls(&ctx);
-	let variant_world_query_impls = variant_world_query_impls(&ctx);
-	let Context { vis, mod_ident, .. } = ctx;
-
-	quote! {
-		#vis mod #mod_ident {
-			use super::*;
-			#trait_impl
-			#type_enum
-			#component_decl
-			#variant_trait_decl
-			#(#variant_struct_decls)*
-			#world_query_impls
-			#variant_world_query_impls
-		}
-	}
-}
-
 fn component_decl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		component_ident,
@@ -924,8 +969,13 @@ fn component_decl(ctx: &Context) -> impl ToTokens {
 }
 
 fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
-	let _crate = &ctx._crate;
-	let variant_trait_ident = &ctx.variant_trait_ident;
+	let Context {
+		_crate,
+		type_enum_ident,
+		type_method_ident,
+		variant_trait_ident,
+		..
+	} = &ctx;
 
 	quote! {
 		mod sealed { pub trait Sealed {} }
@@ -933,6 +983,7 @@ fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
 			type State: Send + Sync + Sized;
 			fn init_state(world: &mut World) -> Self::State;
 			fn insert_into(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands);
+			fn #type_method_ident() -> #type_enum_ident;
 		}
 	}
 }
@@ -940,6 +991,8 @@ fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
 fn variant_struct_decls(ctx: &Context) -> Vec<TokenStream2> {
 	let Context {
 		_crate,
+		type_enum_ident,
+		type_method_ident,
 		component_ident,
 		variant_trait_ident,
 		variant_idents,
@@ -982,6 +1035,10 @@ fn variant_struct_decls(ctx: &Context) -> Vec<TokenStream2> {
 					fn insert_into(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
 						cmds.insert(#component_ident(self))
 							#(.remove::<#component_ident<#excluded>>())*;
+					}
+
+					fn #type_method_ident() -> #type_enum_ident {
+						#type_enum_ident::#variant_ident
 					}
 				}
 			}

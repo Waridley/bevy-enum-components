@@ -79,7 +79,7 @@ pub enum WaterTribe {
 	Southern,
 }
 
-#[derive(Debug, Clone, EnumComponent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumComponent)]
 pub enum Element {
 	Air,
 	Water,
@@ -91,15 +91,11 @@ use element::*;
 
 trait Attack: ElementVariant<State = EnumVariantIndex<3>> {
 	fn attack_sound() -> &'static str;
-	fn matches_nation(nation: &NationItem) -> bool;
 }
 
 impl Attack for element::Air {
 	fn attack_sound() -> &'static str {
 		"Woosh!"
-	}
-	fn matches_nation(nation: &NationItem) -> bool {
-		matches!(nation, NationItem::Air(_))
 	}
 }
 
@@ -107,26 +103,17 @@ impl Attack for element::Water {
 	fn attack_sound() -> &'static str {
 		"Splash!"
 	}
-	fn matches_nation(nation: &NationItem) -> bool {
-		matches!(nation, NationItem::Water(_))
-	}
 }
 
 impl Attack for element::Earth {
 	fn attack_sound() -> &'static str {
 		"Crunch!"
 	}
-	fn matches_nation(nation: &NationItem) -> bool {
-		matches!(nation, NationItem::Earth(_))
-	}
 }
 
 impl Attack for element::Fire {
 	fn attack_sound() -> &'static str {
 		"Fwoomph!"
-	}
-	fn matches_nation(nation: &NationItem) -> bool {
-		matches!(nation, NationItem::Fire(_))
 	}
 }
 
@@ -143,11 +130,11 @@ impl PartialEq<NationType> for ElementType {
 
 impl From<&Nation> for Element {
 	fn from(nation: &Nation) -> Self {
-		match nation {
-			Nation::Air => Element::Air,
-			Nation::Water(_) => Element::Water,
-			Nation::Earth { .. } => Element::Earth,
-			Nation::Fire => Element::Fire,
+		match nation.nation_type() {
+			NationType::Air => Element::Air,
+			NationType::Water => Element::Water,
+			NationType::Earth => Element::Earth,
+			NationType::Fire => Element::Fire,
 		}
 	}
 }
@@ -159,13 +146,13 @@ struct Avatar;
 struct DiscoveredAsAvatar(bool);
 
 fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element), With<Avatar>>) {
-	use ElementItem::*;
+	use ElementType::*;
 	for (id, element) in &mut q {
-		let next_element = match element {
-			Air(_) => Element::Water,
-			Water(_) => Element::Earth,
-			Earth(_) => Element::Fire,
-			Fire(_) => Element::Air,
+		let next_element = match element.element_type() {
+			Air => Element::Water,
+			Water => Element::Earth,
+			Earth => Element::Fire,
+			Fire => Element::Air,
 		};
 		cmds.entity(id).set_enum(next_element);
 	}
@@ -176,14 +163,14 @@ fn attack<E: Attack>(mut q: Query<(&Name, Nation, &mut DiscoveredAsAvatar), Read
 	for (Name(name), nation, mut discovered) in &mut q {
 		println!("{name}: {}", E::attack_sound());
 		let origin = match nation {
-			Air(_) => "the Air Nation".into(),
+			Air(..) => "the Air Nation".into(),
 			Water(nation::Water(tribe)) => format!("the {tribe:?} Water Tribe"),
 			Earth(nation::Earth { residence }) => {
 				format!("{residence}")
 			}
-			Fire(_) => "the Fire Nation".into(),
+			Fire(..) => "the Fire Nation".into(),
 		};
-		if !discovered.0 && !E::matches_nation(&nation) {
+		if !discovered.0 && E::element_type() != NationType::from(&nation) {
 			discovered.0 = true;
 			println!("Whoa! Isn't {name} from {origin}?! They must be the Avatar!");
 		}
@@ -202,7 +189,7 @@ fn check_avatar(
 	mut q: Query<(&Name, Element, &mut MasteredElements)>,
 	mut exit: EventWriter<AppExit>,
 ) {
-	use ElementItem::*;
+	use ElementType::*;
 	for (Name(name), curr_elem, mut mastered) in &mut q {
 		let MasteredElements {
 			air,
@@ -210,11 +197,11 @@ fn check_avatar(
 			earth,
 			fire,
 		} = &mut *mastered;
-		match curr_elem {
-			Air(_) => *air = true,
-			Water(_) => *water = true,
-			Earth(_) => *earth = true,
-			Fire(_) => *fire = true,
+		match curr_elem.element_type() {
+			Air => *air = true,
+			Water => *water = true,
+			Earth => *earth = true,
+			Fire => *fire = true,
 		}
 		if *air && *water && *earth && *fire {
 			println!("Congratulations! {name} mastered all 4 elements!");
