@@ -144,6 +144,54 @@ fn trait_impl(ctx: &Context) -> impl ToTokens {
 	}
 }
 
+fn type_enum(ctx: &Context) -> impl ToTokens {
+	let Context {
+		vis,
+		enum_ident,
+		type_enum_ident,
+		item_ident,
+		variant_idents,
+		data,
+		..
+	} = ctx;
+
+	let enum_match_arms = data.variants.iter().map(|v| {
+		let ident = &v.ident;
+		match v.fields {
+			Fields::Named(..) => quote! { #enum_ident::#ident { .. } => #type_enum_ident::#ident },
+			Fields::Unnamed(..) => quote! { #enum_ident::#ident(..) => #type_enum_ident::#ident },
+			Fields::Unit => quote! { #enum_ident::#ident => #type_enum_ident::#ident },
+		}
+	});
+
+	let item_match_arms = variant_idents.iter().map(|v| {
+		quote! { #item_ident::#v(..) => #type_enum_ident::#v }
+	});
+
+	quote! {
+		#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+		#vis enum #type_enum_ident {
+			#(#variant_idents),*
+		}
+
+		impl From<&#enum_ident> for #type_enum_ident {
+			fn from(value: &#enum_ident) -> Self {
+				match value {
+					#(#enum_match_arms),*
+				}
+			}
+		}
+
+		impl<'w> From<&'w #item_ident<'w>> for #type_enum_ident {
+			fn from(value: &'w #item_ident) -> Self {
+				match value {
+					#(#item_match_arms),*
+				}
+			}
+		}
+	}
+}
+
 fn world_query_impls(ctx: &Context) -> impl ToTokens {
 	let query_items = world_query_items(ctx);
 	let type_aliases = world_query_type_aliases(ctx);
@@ -832,6 +880,7 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 
 fn module(ctx: &Context) -> impl ToTokens {
 	let trait_impl = trait_impl(&ctx);
+	let type_enum = type_enum(&ctx);
 	let component_decl = component_decl(ctx);
 	let variant_trait_decl = variant_trait_decl(ctx);
 	let variant_struct_decls = variant_struct_decls(ctx);
@@ -843,6 +892,7 @@ fn module(ctx: &Context) -> impl ToTokens {
 		#vis mod #mod_ident {
 			use super::*;
 			#trait_impl
+			#type_enum
 			#component_decl
 			#variant_trait_decl
 			#(#variant_struct_decls)*

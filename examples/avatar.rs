@@ -14,6 +14,17 @@ const AVATARS: &[(&str, Nation)] = &[
 	("Roku", Nation::Fire),
 ];
 
+const BENDERS: &[(&str, Nation)] = &[
+	("Katara", Nation::Water(WaterTribe::Southern)),
+	(
+		"Toph",
+		Nation::Earth {
+			residence: "Foggy Swamp",
+		},
+	),
+	("Zuko", Nation::Fire),
+];
+
 fn main() {
 	use element::*;
 	App::new()
@@ -29,13 +40,27 @@ fn main() {
 }
 
 #[derive(Debug, Deref, DerefMut, Component)]
-struct Name(String);
+struct Name(&'static str);
 
 fn setup(mut cmds: Commands) {
 	for (name, nation) in AVATARS {
-		cmds.spawn((Name((&**name).into()), MasteredElements::default()))
-			.set_enum(nation.clone())
-			.set_enum(Element::from(nation));
+		cmds.spawn((
+			Name(*name),
+			MasteredElements::default(),
+			DiscoveredAsAvatar::default(),
+			Avatar::default(),
+		))
+		.set_enum(nation.clone())
+		.set_enum(Element::from(nation));
+	}
+	for (name, nation) in BENDERS {
+		cmds.spawn((
+			Name(*name),
+			MasteredElements::default(),
+			DiscoveredAsAvatar::default(),
+		))
+		.set_enum(nation.clone())
+		.set_enum(Element::from(nation));
 	}
 }
 
@@ -62,7 +87,9 @@ pub enum Element {
 	Fire,
 }
 
-trait Attack: element::ElementVariant<State = EnumVariantIndex<3>> {
+use element::*;
+
+trait Attack: ElementVariant<State = EnumVariantIndex<3>> {
 	fn attack_sound() -> &'static str;
 	fn matches_nation(nation: &NationItem) -> bool;
 }
@@ -103,6 +130,17 @@ impl Attack for element::Fire {
 	}
 }
 
+impl PartialEq<NationType> for ElementType {
+	fn eq(&self, nation: &NationType) -> bool {
+		match nation {
+			NationType::Air => *self == ElementType::Air,
+			NationType::Water => *self == ElementType::Water,
+			NationType::Earth => *self == ElementType::Earth,
+			NationType::Fire => *self == ElementType::Fire,
+		}
+	}
+}
+
 impl From<&Nation> for Element {
 	fn from(nation: &Nation) -> Self {
 		match nation {
@@ -114,8 +152,14 @@ impl From<&Nation> for Element {
 	}
 }
 
-fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element)>) {
-	use element::ElementItem::*;
+#[derive(Default, Component)]
+struct Avatar;
+
+#[derive(Default, Component)]
+struct DiscoveredAsAvatar(bool);
+
+fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element), With<Avatar>>) {
+	use ElementItem::*;
 	for (id, element) in &mut q {
 		let next_element = match element {
 			Air(_) => Element::Water,
@@ -127,10 +171,10 @@ fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element)>) {
 	}
 }
 
-fn attack<E: Attack>(q: Query<(&Name, Nation), element::ReadElement<E>>) {
+fn attack<E: Attack>(mut q: Query<(&Name, Nation, &mut DiscoveredAsAvatar), ReadElement<E>>) {
 	use nation::NationItem::*;
-	for (Name(name), nation) in &q {
-		println!("{}", E::attack_sound());
+	for (Name(name), nation, mut discovered) in &mut q {
+		println!("{name}: {}", E::attack_sound());
 		let origin = match nation {
 			Air(_) => "the Air Nation".into(),
 			Water(nation::Water(tribe)) => format!("the {tribe:?} Water Tribe"),
@@ -139,7 +183,8 @@ fn attack<E: Attack>(q: Query<(&Name, Nation), element::ReadElement<E>>) {
 			}
 			Fire(_) => "the Fire Nation".into(),
 		};
-		if !E::matches_nation(&nation) {
+		if !discovered.0 && !E::matches_nation(&nation) {
+			discovered.0 = true;
 			println!("Whoa! Isn't {name} from {origin}?! They must be the Avatar!");
 		}
 	}
@@ -157,7 +202,7 @@ fn check_avatar(
 	mut q: Query<(&Name, Element, &mut MasteredElements)>,
 	mut exit: EventWriter<AppExit>,
 ) {
-	use element::ElementItem::*;
+	use ElementItem::*;
 	for (Name(name), curr_elem, mut mastered) in &mut q {
 		let MasteredElements {
 			air,
