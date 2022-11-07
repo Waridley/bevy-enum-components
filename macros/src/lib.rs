@@ -61,6 +61,8 @@ pub fn derive_enum_component(input: TokenStream) -> TokenStream {
 		}
 	};
 
+	// TODO: Could some of these names be simiplified since they are inside the module?
+	//   - Alternatively, should they be moved outside the module?
 	let type_enum_ident = format_ident!("{ident}Type");
 	let ctx = Context {
 		_crate,
@@ -94,23 +96,27 @@ pub fn derive_enum_component(input: TokenStream) -> TokenStream {
 fn module(ctx: &Context) -> impl ToTokens {
 	let enum_impls = enum_impls(&ctx);
 	let type_enum = type_enum(&ctx);
-	let component_decl = component_decl(ctx);
-	let variant_trait_decl = variant_trait_decl(ctx);
-	let variant_struct_decls = variant_struct_decls(ctx);
-	let world_query_impls = world_query_impls(&ctx);
-	let variant_world_query_impls = variant_world_query_impls(&ctx);
+	let variant_component = variant_component(ctx);
+	let variant_trait = variant_trait_decl(ctx);
+	let variant_structs = variant_structs(ctx);
+	let enum_world_queries = enum_world_queries(&ctx);
+	let variant_world_queries = variant_world_queries(&ctx);
 	let Context { vis, mod_ident, .. } = ctx;
 
 	quote! {
 		#vis mod #mod_ident {
 			use super::*;
+
 			#enum_impls
+			#enum_world_queries
+
 			#type_enum
-			#component_decl
-			#variant_trait_decl
-			#(#variant_struct_decls)*
-			#world_query_impls
-			#variant_world_query_impls
+
+			#variant_trait
+			#(#variant_structs)*
+
+			#variant_component
+			#variant_world_queries
 		}
 	}
 }
@@ -239,7 +245,7 @@ fn type_enum(ctx: &Context) -> impl ToTokens {
 	}
 }
 
-fn world_query_impls(ctx: &Context) -> impl ToTokens {
+fn enum_world_queries(ctx: &Context) -> impl ToTokens {
 	let query_items = world_query_items(ctx);
 	let type_aliases = world_query_type_aliases(ctx);
 	let read_impl = world_query_read_impl(ctx);
@@ -453,13 +459,6 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 		..
 	} = ctx;
 
-	let gats_impl = quote! {
-		impl<'w> ::#_crate::bevy_ecs::query::WorldQueryGats<'w> for #enum_ident {
-			type Item = #item_ident<'w>;
-			type Fetch = #fetch_ident<'w>;
-		}
-	};
-
 	let indices = (0..variant_idents.len())
 		.into_iter()
 		.map(|i| syn::Index::from(i));
@@ -473,6 +472,8 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 
 	let world_query_impl = quote! {
 		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #enum_ident {
+			type Item<'a> = #item_ident<'a>;
+			type Fetch<'a> = #fetch_ident<'a>;
 			type ReadOnly = Self;
 			type State = #state_ident;
 
@@ -487,43 +488,42 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				state: &Self::State,
 				last_change_tick: u32,
 				change_tick: u32,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch {
+			) -> Self::Fetch<'w> {
 				#query_ident::init_fetch(world, state, last_change_tick, change_tick).into()
+			}
+
+			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
+				#query_ident::clone_fetch(fetch)
 			}
 
 			const IS_DENSE: bool = false;
 			const IS_ARCHETYPAL: bool = true;
 
 			unsafe fn set_archetype<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+				fetch: &mut Self::Fetch<'w>,
 				state: &Self::State,
 				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
-				tables: &'w ::#_crate::bevy_ecs::storage::Tables,
+				tables: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
 				#query_ident::set_archetype(fetch, state, archetype, tables)
 			}
 
 			unsafe fn set_table<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+				fetch: &mut Self::Fetch<'w>,
 				state: &Self::State,
 				table: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
 				#query_ident::set_table(fetch, state, table)
 			}
 
-			unsafe fn archetype_fetch<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
-				archetype_index: usize,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Item {
-				#query_ident::archetype_fetch(fetch, archetype_index).into()
+			unsafe fn fetch<'w>(
+				fetch: &mut Self::Fetch<'w>,
+				entity: Entity,
+				table_row: usize,
+			) -> Self::Item<'w> {
+				#query_ident::fetch(fetch, entity, table_row).into()
 			}
 
-			unsafe fn table_fetch<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
-				table_row: usize,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Item {
-				#query_ident::table_fetch(fetch, table_row).into()
-			}
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
 				#(#add_reads);*
@@ -557,7 +557,6 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 	};
 
 	quote! {
-		#gats_impl
 		#world_query_impl
 		#read_only_impl
 	}
@@ -582,13 +581,6 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 		#vis struct #query_mut_struct_ident;
 	};
 
-	let gats_impl = quote! {
-		impl<'w> ::#_crate::bevy_ecs::query::WorldQueryGats<'w> for #query_mut_struct_ident {
-			type Item = #item_mut_ident<'w>;
-			type Fetch = #fetch_mut_ident<'w>;
-		}
-	};
-
 	let indices = (0..variant_idents.len())
 		.into_iter()
 		.map(|i| syn::Index::from(i));
@@ -602,6 +594,8 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 
 	let world_query_mut_impl = quote! {
 		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #query_mut_struct_ident {
+			type Item<'a> = #item_mut_ident<'a>;
+			type Fetch<'a> = #fetch_mut_ident<'a>;
 			type ReadOnly = #enum_ident;
 			type State = #state_ident;
 
@@ -616,42 +610,40 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				state: &Self::State,
 				last_change_tick: u32,
 				change_tick: u32,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch {
+			) -> Self::Fetch<'w> {
 				#query_mut_ident::init_fetch(world, state, last_change_tick, change_tick).into()
+			}
+
+			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
+				#query_mut_ident::clone_fetch(fetch)
 			}
 
 			const IS_DENSE: bool = false; // TODO: Make configurable
 			const IS_ARCHETYPAL: bool = true;
 
 			unsafe fn set_archetype<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+				fetch: &mut Self::Fetch<'w>,
 				state: &Self::State,
 				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
-				tables: &'w ::#_crate::bevy_ecs::storage::Tables,
+				tables: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
 				#query_mut_ident::set_archetype(fetch, state, archetype, tables)
 			}
 
 			unsafe fn set_table<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+				fetch: &mut Self::Fetch<'w>,
 				state: &Self::State,
 				table: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
 				#query_mut_ident::set_table(fetch, state, table)
 			}
 
-			unsafe fn archetype_fetch<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
-				archetype_index: usize,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Item {
-				#query_mut_ident::archetype_fetch(fetch, archetype_index).into()
-			}
-
-			unsafe fn table_fetch<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+			unsafe fn fetch<'w>(
+				fetch: &mut Self::Fetch<'w>,
+				entity: Entity,
 				table_row: usize,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Item {
-				#query_mut_ident::table_fetch(fetch, table_row).into()
+			) -> Self::Item<'w> {
+				#query_mut_ident::fetch(fetch, entity, table_row).into()
 			}
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
@@ -681,12 +673,11 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 
 	quote! {
 		#struct_def
-		#gats_impl
 		#world_query_mut_impl
 	}
 }
 
-fn variant_world_query_impls(ctx: &Context) -> impl ToTokens {
+fn variant_world_queries(ctx: &Context) -> impl ToTokens {
 	let read_impl = variant_world_query_read_impl(ctx);
 	let mut_impl = variant_world_query_mut_impl(ctx);
 
@@ -711,16 +702,11 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 		#vis struct #read_variant_ident<T: #variant_trait_ident>(::std::marker::PhantomData<T>);
 	};
 
-	let gats_impl = quote! {
-		impl<'w, T: #variant_trait_ident + 'w> ::#_crate::bevy_ecs::query::WorldQueryGats<'w> for #read_variant_ident<T> {
-			type Item = &'w T;
-			type Fetch = <&'w #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch;
-		}
-	};
-
 	let world_query_impl = quote! {
 		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::WorldQuery for #read_variant_ident<T>
 		where T: #variant_trait_ident<State = ::#_crate::EnumVariantIndex<N>> {
+			type Item<'a> = &'a T;
+			type Fetch<'a> = <&'a #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQuery>::Fetch<'a>;
 			type ReadOnly = Self;
 			type State = T::State;
 
@@ -735,42 +721,40 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				state: &Self::State,
 				last_change_tick: u32,
 				change_tick: u32,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch {
+			) -> Self::Fetch<'w> {
 				<&#component_ident<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
+			}
+
+			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
+				<&'w #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
 			}
 
 			const IS_DENSE: bool = false; // TODO: Make configurable
 			const IS_ARCHETYPAL: bool = true;
 
 			unsafe fn set_archetype<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+				fetch: &mut Self::Fetch<'w>,
 				state: &Self::State,
 				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
-				tables: &'w ::#_crate::bevy_ecs::storage::Tables,
+				tables: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
 				<&#component_ident<T>>::set_archetype(fetch, &state.with, archetype, tables)
 			}
 
 			unsafe fn set_table<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+				fetch: &mut Self::Fetch<'w>,
 				state: &Self::State,
 				table: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
 				<&#component_ident<T>>::set_table(fetch, &state.with, table)
 			}
 
-			unsafe fn archetype_fetch<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
-				archetype_index: usize,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Item {
-				&<&#component_ident<T>>::archetype_fetch(fetch, archetype_index).0
-			}
-
-			unsafe fn table_fetch<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+			unsafe fn fetch<'w>(
+				fetch: &mut Self::Fetch<'w>,
+				entity: Entity,
 				table_row: usize,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Item {
-				&<&#component_ident<T>>::table_fetch(fetch, table_row).0
+			) -> Self::Item<'w> {
+				&<&#component_ident<T>>::fetch(fetch, entity, table_row).0
 			}
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
@@ -815,7 +799,6 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 
 	quote! {
 		#struct_def
-		#gats_impl
 		#world_query_impl
 		#read_only_impl
 	}
@@ -837,16 +820,11 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 		#vis struct #write_variant_ident<T: #variant_trait_ident>(::std::marker::PhantomData<T>);
 	};
 
-	let gats_impl = quote! {
-		impl<'w, T: #variant_trait_ident + 'w> ::#_crate::bevy_ecs::query::WorldQueryGats<'w> for #write_variant_ident<T> {
-			type Item = ::#_crate::bevy_ecs::world::Mut<'w, T>;
-			type Fetch = <&'w mut #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch;
-		}
-	};
-
 	let world_query_impl = quote! {
 		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::WorldQuery for #write_variant_ident<T>
 		where T: #variant_trait_ident<State = ::#_crate::EnumVariantIndex<N>> {
+			type Item<'a> = ::#_crate::bevy_ecs::world::Mut<'a, T>;
+			type Fetch<'a> = <&'a mut #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQuery>::Fetch<'a>;
 			type ReadOnly = #read_variant_ident<T>;
 			type State = T::State;
 
@@ -861,43 +839,40 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				state: &Self::State,
 				last_change_tick: u32,
 				change_tick: u32,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch {
+			) -> Self::Fetch<'w> {
 				<&mut #component_ident<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
+			}
+			
+			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
+				<&'w mut #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
 			}
 
 			const IS_DENSE: bool = false; // TODO: Make configurable
 			const IS_ARCHETYPAL: bool = true;
 
 			unsafe fn set_archetype<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+				fetch: &mut Self::Fetch<'w>,
 				state: &Self::State,
 				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
-				tables: &'w ::#_crate::bevy_ecs::storage::Tables,
+				tables: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
 				<&mut #component_ident<T>>::set_archetype(fetch, &state.with, archetype, tables)
 			}
 
 			unsafe fn set_table<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+				fetch: &mut Self::Fetch<'w>,
 				state: &Self::State,
 				table: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
 				<&mut #component_ident<T>>::set_table(fetch, &state.with, table)
 			}
 
-			unsafe fn archetype_fetch<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
-				archetype_index: usize,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Item {
-				<&mut #component_ident<T>>::archetype_fetch(fetch, archetype_index)
-					.map_unchanged(|foo| &mut foo.0)
-			}
-
-			unsafe fn table_fetch<'w>(
-				fetch: &mut <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Fetch,
+			unsafe fn fetch<'w>(
+				fetch: &mut Self::Fetch<'w>,
+				entity: Entity,
 				table_row: usize,
-			) -> <Self as ::#_crate::bevy_ecs::query::WorldQueryGats<'w>>::Item {
-				<&mut #component_ident<T>>::table_fetch(fetch, table_row).map_unchanged(|foo| &mut foo.0)
+			) -> Self::Item<'w> {
+				<&mut #component_ident<T>>::fetch(fetch, entity, table_row).map_unchanged(|foo| &mut foo.0)
 			}
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
@@ -939,12 +914,11 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 
 	quote! {
 		#struct_def
-		#gats_impl
 		#world_query_impl
 	}
 }
 
-fn component_decl(ctx: &Context) -> impl ToTokens {
+fn variant_component(ctx: &Context) -> impl ToTokens {
 	let Context {
 		component_ident,
 		variant_trait_ident,
@@ -985,7 +959,7 @@ fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
 	}
 }
 
-fn variant_struct_decls(ctx: &Context) -> Vec<TokenStream2> {
+fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 	let Context {
 		_crate,
 		type_enum_ident,
