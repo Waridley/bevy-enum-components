@@ -842,7 +842,7 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 			) -> Self::Fetch<'w> {
 				<&mut #component_ident<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 			}
-			
+
 			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
 				<&'w mut #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
 			}
