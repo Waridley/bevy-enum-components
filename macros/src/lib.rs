@@ -222,7 +222,7 @@ fn type_enum(ctx: &Context) -> impl ToTokens {
 	});
 
 	quote! {
-		#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+		#[derive(Debug, Copy, Clone, PartialEq)]
 		#vis enum #type_enum_ident {
 			#(#variant_idents),*
 		}
@@ -274,7 +274,7 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 	} = ctx;
 
 	let item = quote! {
-		#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+		#[derive(Debug, Clone, Copy, PartialEq)]
 		#vis enum #item_ident<'w> {
 			#(#variant_idents(&'w #variant_idents),)*
 		}
@@ -988,7 +988,7 @@ fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 				})
 				.collect::<Vec<_>>();
 			quote! {
-				#[derive(Debug, Clone, PartialEq, Eq)]
+				#[derive(Debug, Clone, PartialEq)]
 				#tokens
 				impl sealed::Sealed for #variant_ident {}
 				impl #variant_trait_ident for #variant_ident {
