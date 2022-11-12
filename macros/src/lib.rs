@@ -872,7 +872,7 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				entity: Entity,
 				table_row: usize,
 			) -> Self::Item<'w> {
-				<&mut #component_ident<T>>::fetch(fetch, entity, table_row).map_unchanged(|foo| &mut foo.0)
+				<&mut #component_ident<T>>::fetch(fetch, entity, table_row).map_unchanged(|it| &mut it.0)
 			}
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
