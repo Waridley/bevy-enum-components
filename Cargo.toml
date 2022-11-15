@@ -9,8 +9,8 @@ members = ["macros"]
 
 [dependencies]
 macros = { package = "sond-bevy-enum-components-macros", path = "macros" }
-bevy_ecs = { version = "0.9.0-dev", path = "../bevy/crates/bevy_ecs" }
+bevy_ecs = { version = "0.9.0", path = "../bevy/crates/bevy_ecs" }
 
 [dev-dependencies]
 sond-bevy-enum-components = { version = "0.1.0", path = "." }
-bevy = { version = "0.9.0-dev", path = "../bevy", default-features = false }
+bevy = { version = "0.9.0", path = "../bevy", default-features = false }
