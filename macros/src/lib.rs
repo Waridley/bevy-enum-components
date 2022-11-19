@@ -186,6 +186,8 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 					#(.remove::<#component_ident<#variant_idents>>())*;
 			}
 		}
+		
+		impl #_crate::bevy_ecs::query::ArchetypeFilter for #enum_ident {}
 
 		impl #enum_ident {
 			#vis fn #type_method_ident(&self) -> #type_enum_ident {
