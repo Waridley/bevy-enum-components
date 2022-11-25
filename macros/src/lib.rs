@@ -94,13 +94,13 @@ pub fn derive_enum_component(input: TokenStream) -> TokenStream {
 }
 
 fn module(ctx: &Context) -> impl ToTokens {
-	let enum_impls = enum_impls(&ctx);
-	let type_enum = type_enum(&ctx);
+	let enum_impls = enum_impls(ctx);
+	let type_enum = type_enum(ctx);
 	let variant_component = variant_component(ctx);
 	let variant_trait = variant_trait_decl(ctx);
 	let variant_structs = variant_structs(ctx);
-	let enum_world_queries = enum_world_queries(&ctx);
-	let variant_world_queries = variant_world_queries(&ctx);
+	let enum_world_queries = enum_world_queries(ctx);
+	let variant_world_queries = variant_world_queries(ctx);
 	let Context { vis, mod_ident, .. } = ctx;
 
 	quote! {
@@ -186,7 +186,7 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 					#(.remove::<#component_ident<#variant_idents>>())*;
 			}
 		}
-		
+
 		impl #_crate::bevy_ecs::query::ArchetypeFilter for #enum_ident {}
 
 		impl #enum_ident {
@@ -461,9 +461,7 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 		..
 	} = ctx;
 
-	let indices = (0..variant_idents.len())
-		.into_iter()
-		.map(|i| syn::Index::from(i));
+	let indices = (0..variant_idents.len()).into_iter().map(syn::Index::from);
 	let add_reads = indices
 		.clone()
 		.map(|i| quote! { access.add_read(state.#i) });
@@ -583,9 +581,7 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 		#vis struct #query_mut_struct_ident;
 	};
 
-	let indices = (0..variant_idents.len())
-		.into_iter()
-		.map(|i| syn::Index::from(i));
+	let indices = (0..variant_idents.len()).into_iter().map(syn::Index::from);
 	let add_writes = indices
 		.clone()
 		.map(|i| quote! { access.add_write(state.#i) });
@@ -1015,7 +1011,6 @@ fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 					}
 				}
 			}
-			.into()
 		})
 		.collect::<Vec<_>>()
 }
