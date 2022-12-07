@@ -228,6 +228,7 @@ fn type_enum(ctx: &Context) -> impl ToTokens {
 	});
 
 	quote! {
+		#[allow(clippy::derive_partial_eq_without_eq)]
 		#[derive(Debug, Copy, Clone, PartialEq)]
 		#[automatically_derived]
 		#vis enum #type_enum_ident {
@@ -283,6 +284,7 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 	} = ctx;
 
 	let item = quote! {
+		#[allow(clippy::derive_partial_eq_without_eq)]
 		#[derive(Debug, Clone, Copy, PartialEq)]
 		#[automatically_derived]
 		#vis enum #item_ident<'w> {
@@ -1017,6 +1019,7 @@ fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 				})
 				.collect::<Vec<_>>();
 			quote! {
+				#[allow(clippy::derive_partial_eq_without_eq)]
 				#[derive(Debug, Clone, PartialEq)]
 				#[automatically_derived]
 				#tokens
