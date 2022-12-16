@@ -458,7 +458,7 @@ fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 
 		#[automatically_derived]
 		type #fetch<'w> = (
-			#(::bevy::ecs::query::OptionFetch<'w, &'w #component_struct<#variants>>,)*
+			#(::#_crate::bevy_ecs::query::OptionFetch<'w, &'w #component_struct<#variants>>,)*
 		);
 	};
 
@@ -470,7 +470,7 @@ fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 
 		#[automatically_derived]
 		type #fetch_mut<'w> = (
-			#(::bevy::ecs::query::OptionFetch<'w, &'w mut #component_struct<#variants>>,)*
+			#(::#_crate::bevy_ecs::query::OptionFetch<'w, &'w mut #component_struct<#variants>>,)*
 		);
 
 		#[automatically_derived]
@@ -977,6 +977,7 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 
 fn variant_component(ctx: &Context) -> impl ToTokens {
 	let Context {
+		_crate,
 		idents: Idents {
 			component_struct,
 			variant_trait,
@@ -989,7 +990,7 @@ fn variant_component(ctx: &Context) -> impl ToTokens {
 		#[automatically_derived]
 		mod component {
 			use super::*;
-			use ::bevy::ecs::prelude::Component; // TODO: Find crate
+			use ::#_crate::bevy_ecs::prelude::Component;
 
 			#[derive(Debug, Component)]
 			#[automatically_derived]
@@ -1101,6 +1102,7 @@ fn variant_struct_defs<'ctx>(
 				Fields::Named(fields) => {
 					let fields = fields.named.iter();
 					quote! {
+						#[automatically_derived]
 						pub struct #variant {
 							#(pub #fields,)*
 						}
@@ -1109,11 +1111,13 @@ fn variant_struct_defs<'ctx>(
 				Fields::Unnamed(fields) => {
 					let fields = fields.unnamed.iter();
 					quote! {
+						#[automatically_derived]
 						pub struct #variant ( #(pub #fields,)* );
 					}
 				}
 				Fields::Unit => {
 					quote! {
+						#[automatically_derived]
 						pub struct #variant;
 					}
 				}
