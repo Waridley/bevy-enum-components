@@ -15,7 +15,6 @@ pub struct EnumVariantIndex<const N: usize> {
 impl<const N: usize> EnumVariantIndex<N> {
 	pub fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
 		access.add_read(self.with);
-		access.add_read(self.with);
 		for id in self.without {
 			access.add_without(id)
 		}

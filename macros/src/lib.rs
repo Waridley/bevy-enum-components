@@ -9,30 +9,34 @@ use syn::{
 type TokenStream2 = proc_macro2::TokenStream;
 
 #[allow(unused)]
-struct Context<'data> {
+pub(crate) struct Context<'data> {
 	_crate: Ident,
 	attrs: Vec<Attribute>,
 	vis: Visibility,
-	enum_ident: Ident,
 	generics: Generics,
-	mod_ident: Ident,
-	variant_trait_ident: Ident,
-	type_enum_ident: Ident,
-	type_method_ident: Ident,
-	component_ident: Ident,
-	state_ident: Ident,
-	item_ident: Ident,
-	query_ident: Ident,
-	fetch_ident: Ident,
-	query_mut_struct_ident: Ident,
-	item_mut_ident: Ident,
-	query_mut_ident: Ident,
-	fetch_mut_ident: Ident,
-	fetch_mut_item_ident: Ident,
-	read_variant_ident: Ident,
-	write_variant_ident: Ident,
-	variant_idents: Vec<&'data Ident>,
+	idents: Idents<'data>,
 	data: &'data DataEnum,
+}
+
+pub(crate) struct Idents<'data> {
+	main_enum: Ident,
+	module: Ident,
+	variant_trait: Ident,
+	type_enum: Ident,
+	type_method: Ident,
+	component_struct: Ident,
+	state: Ident,
+	item: Ident,
+	query: Ident,
+	fetch: Ident,
+	query_mut_struct: Ident,
+	item_mut: Ident,
+	query_mut: Ident,
+	fetch_mut: Ident,
+	fetch_mut_item: Ident,
+	read_variant: Ident,
+	write_variant: Ident,
+	variants: Vec<&'data Ident>,
 }
 
 #[proc_macro_derive(EnumComponent)]
@@ -63,30 +67,32 @@ pub fn derive_enum_component(input: TokenStream) -> TokenStream {
 
 	// TODO: Could some of these names be simiplified since they are inside the module?
 	//   - Alternatively, should they be moved outside the module?
-	let type_enum_ident = format_ident!("{ident}Type");
+	let type_enum = format_ident!("{ident}Type");
 	let ctx = Context {
 		_crate,
 		attrs,
 		vis,
 		generics,
-		mod_ident: format_ident!("{}", ident.to_string().to_case(Snake)),
-		variant_trait_ident: format_ident!("{ident}Variant"),
-		type_method_ident: format_ident!("{}", type_enum_ident.to_string().to_case(Snake)),
-		type_enum_ident,
-		component_ident: format_ident!("{ident}Component"),
-		state_ident: format_ident!("{ident}State"),
-		item_ident: format_ident!("{ident}Item"),
-		query_ident: format_ident!("{ident}Query"),
-		fetch_ident: format_ident!("{ident}Fetch"),
-		query_mut_struct_ident: format_ident!("{ident}Mut"),
-		item_mut_ident: format_ident!("{ident}ItemMut"),
-		query_mut_ident: format_ident!("{ident}QueryMut"),
-		fetch_mut_ident: format_ident!("{ident}FetchMut"),
-		fetch_mut_item_ident: format_ident!("{ident}FetchMutItem"),
-		read_variant_ident: format_ident!("Read{ident}"),
-		write_variant_ident: format_ident!("Write{ident}"),
-		variant_idents: data.variants.iter().map(|v| &v.ident).collect::<Vec<_>>(),
-		enum_ident: ident, // move last
+		idents: Idents {
+			module: format_ident!("{}", ident.to_string().to_case(Snake)),
+			variant_trait: format_ident!("{ident}Variant"),
+			type_method: format_ident!("{}", type_enum.to_string().to_case(Snake)),
+			type_enum,
+			component_struct: format_ident!("{ident}Component"),
+			state: format_ident!("{ident}State"),
+			item: format_ident!("{ident}Item"),
+			query: format_ident!("{ident}Query"),
+			fetch: format_ident!("{ident}Fetch"),
+			query_mut_struct: format_ident!("{ident}Mut"),
+			item_mut: format_ident!("{ident}ItemMut"),
+			query_mut: format_ident!("{ident}QueryMut"),
+			fetch_mut: format_ident!("{ident}FetchMut"),
+			fetch_mut_item: format_ident!("{ident}FetchMutItem"),
+			read_variant: format_ident!("Read{ident}"),
+			write_variant: format_ident!("Write{ident}"),
+			variants: data.variants.iter().map(|v| &v.ident).collect::<Vec<_>>(),
+			main_enum: ident, // move last
+		},
 		data,
 	};
 
@@ -101,11 +107,11 @@ fn module(ctx: &Context) -> impl ToTokens {
 	let variant_structs = variant_structs(ctx);
 	let enum_world_queries = enum_world_queries(ctx);
 	let variant_world_queries = variant_world_queries(ctx);
-	let Context { vis, mod_ident, .. } = ctx;
+	let Context { vis, idents: Idents { module, .. }, .. } = ctx;
 
 	quote! {
 		#[automatically_derived]
-		#vis mod #mod_ident {
+		#vis mod #module {
 			use super::*;
 
 			#enum_impls
@@ -126,11 +132,14 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
 		vis,
-		enum_ident,
-		type_enum_ident,
-		type_method_ident,
-		component_ident,
-		variant_idents,
+		idents: Idents {
+			main_enum,
+			type_enum,
+			type_method,
+			component_struct,
+			variants,
+			..
+		},
 		data,
 		..
 	} = ctx;
@@ -167,15 +176,15 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 	let type_match_arms = data.variants.iter().map(|v| {
 		let ident = &v.ident;
 		match v.fields {
-			Fields::Named(..) => quote! { Self::#ident { .. } => #type_enum_ident::#ident },
-			Fields::Unnamed(..) => quote! { Self::#ident(..) => #type_enum_ident::#ident },
-			Fields::Unit => quote! { Self::#ident => #type_enum_ident::#ident },
+			Fields::Named(..) => quote! { Self::#ident { .. } => #type_enum::#ident },
+			Fields::Unnamed(..) => quote! { Self::#ident(..) => #type_enum::#ident },
+			Fields::Unit => quote! { Self::#ident => #type_enum::#ident },
 		}
 	});
 
 	quote! {
 		#[automatically_derived]
-		impl ::#_crate::EnumComponent for #enum_ident {
+		impl ::#_crate::EnumComponent for #main_enum {
 			fn dispatch_to(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
 				match self {
 					#(Self::#variant_patterns =>
@@ -185,16 +194,16 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 
 			fn remove_from(cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
 				cmds
-					#(.remove::<#component_ident<#variant_idents>>())*;
+					#(.remove::<#component_struct<#variants>>())*;
 			}
 		}
 
 		#[automatically_derived]
-		impl #_crate::bevy_ecs::query::ArchetypeFilter for #enum_ident {}
+		impl ::#_crate::bevy_ecs::query::ArchetypeFilter for #main_enum {}
 
 		#[automatically_derived]
-		impl #enum_ident {
-			#vis fn #type_method_ident(&self) -> #type_enum_ident {
+		impl #main_enum {
+			#vis fn #type_method(&self) -> #type_enum {
 				match self {
 					#(#type_match_arms),*
 				}
@@ -206,10 +215,13 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 fn type_enum(ctx: &Context) -> impl ToTokens {
 	let Context {
 		vis,
-		enum_ident,
-		type_enum_ident,
-		item_ident,
-		variant_idents,
+		idents: Idents {
+			main_enum,
+			type_enum,
+			item,
+			variants,
+			..
+		},
 		data,
 		..
 	} = ctx;
@@ -217,27 +229,27 @@ fn type_enum(ctx: &Context) -> impl ToTokens {
 	let enum_match_arms = data.variants.iter().map(|v| {
 		let ident = &v.ident;
 		match v.fields {
-			Fields::Named(..) => quote! { #enum_ident::#ident { .. } => #type_enum_ident::#ident },
-			Fields::Unnamed(..) => quote! { #enum_ident::#ident(..) => #type_enum_ident::#ident },
-			Fields::Unit => quote! { #enum_ident::#ident => #type_enum_ident::#ident },
+			Fields::Named(..) => quote! { #main_enum::#ident { .. } => #type_enum::#ident },
+			Fields::Unnamed(..) => quote! { #main_enum::#ident(..) => #type_enum::#ident },
+			Fields::Unit => quote! { #main_enum::#ident => #type_enum::#ident },
 		}
 	});
 
-	let item_match_arms = variant_idents.iter().map(|v| {
-		quote! { #item_ident::#v(..) => #type_enum_ident::#v }
+	let item_match_arms = variants.iter().map(|v| {
+		quote! { #item::#v(..) => #type_enum::#v }
 	});
 
 	quote! {
 		#[allow(clippy::derive_partial_eq_without_eq)]
 		#[derive(Debug, Copy, Clone, PartialEq)]
 		#[automatically_derived]
-		#vis enum #type_enum_ident {
-			#(#variant_idents),*
+		#vis enum #type_enum {
+			#(#variants),*
 		}
 
 		#[automatically_derived]
-		impl From<&#enum_ident> for #type_enum_ident {
-			fn from(value: &#enum_ident) -> Self {
+		impl From<&#main_enum> for #type_enum {
+			fn from(value: &#main_enum) -> Self {
 				match value {
 					#(#enum_match_arms),*
 				}
@@ -245,8 +257,8 @@ fn type_enum(ctx: &Context) -> impl ToTokens {
 		}
 
 		#[automatically_derived]
-		impl From<&#item_ident<'_>> for #type_enum_ident {
-			fn from(value: &#item_ident) -> Self {
+		impl From<&#item<'_>> for #type_enum {
+			fn from(value: &#item) -> Self {
 				match value {
 					#(#item_match_arms),*
 				}
@@ -272,28 +284,31 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
 		vis,
-		enum_ident,
-		type_enum_ident,
-		type_method_ident,
-		item_ident,
-		query_ident,
-		item_mut_ident,
-		fetch_mut_item_ident,
-		variant_idents,
+		idents: Idents {
+			main_enum,
+			type_enum,
+			type_method,
+			item,
+			query,
+			item_mut,
+			fetch_mut_item,
+			variants,
+			..
+		},
 		..
 	} = ctx;
 
-	let item = quote! {
+	let item_decl = quote! {
 		#[allow(clippy::derive_partial_eq_without_eq)]
 		#[derive(Debug, Clone, Copy, PartialEq)]
 		#[automatically_derived]
-		#vis enum #item_ident<'w> {
-			#(#variant_idents(&'w #variant_idents),)*
+		#vis enum #item<'w> {
+			#(#variants(&'w #variants),)*
 		}
 	};
 
-	let len = variant_idents.len();
-	let match_arms = variant_idents
+	let len = variants.len();
+	let match_arms = variants
 		.iter()
 		.enumerate()
 		.map(|(i, v)| {
@@ -305,32 +320,32 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 					.map_or_else(|| quote! { None }, |v| quote! { Some(#v) })
 			});
 			quote! {
-				( #(#patterns),* ) => #item_ident::#v(&#var.0)
+				( #(#patterns),* ) => #item::#v(&#var.0)
 			}
 		})
 		.chain({
 			let nones = std::iter::repeat(quote! { None }).take(len);
 			[
 				quote! {
-					( #(#nones),* ) => panic!("No {} variant components exist", stringify!(#enum_ident))
+					( #(#nones),* ) => panic!("No {} variant components exist", stringify!(#main_enum))
 				},
 				quote! {
 					other => panic!(
 							"Multiple `{}` variant components exist: {:?}\n\
 							Enum component variant should only be changed via EntityEnumCommands",
-							stringify!(#enum_ident), other
+							stringify!(#main_enum), other
 						)
 				},
 			]
 		});
-	let type_match_arms = variant_idents.iter().map(|v| {
-		quote! { Self::#v(..) => #type_enum_ident::#v }
+	let type_match_arms = variants.iter().map(|v| {
+		quote! { Self::#v(..) => #type_enum::#v }
 	});
 	let type_mut_match_arms = type_match_arms.clone();
 	let item_impls = quote! {
 		#[automatically_derived]
-		impl<'w> From<#query_ident<'w>> for #item_ident<'w> {
-			fn from(fetch: #query_ident<'w>) -> Self {
+		impl<'w> From<#query<'w>> for #item<'w> {
+			fn from(fetch: #query<'w>) -> Self {
 				match fetch {
 					#(#match_arms),*
 				}
@@ -338,8 +353,8 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 		}
 
 		#[automatically_derived]
-		impl #item_ident<'_> {
-			#vis fn #type_method_ident(&self) -> #type_enum_ident {
+		impl #item<'_> {
+			#vis fn #type_method(&self) -> #type_enum {
 				match self {
 					#(#type_match_arms),*
 				}
@@ -347,13 +362,13 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 		}
 	};
 
-	let item_mut = quote! {
+	let item_mut_decl = quote! {
 		#[derive(Debug)]
-		#vis enum #item_mut_ident<'w> {
-			#(#variant_idents(::#_crate::bevy_ecs::world::Mut<'w, #variant_idents>),)*
+		#vis enum #item_mut<'w> {
+			#(#variants(::#_crate::bevy_ecs::world::Mut<'w, #variants>),)*
 		}
 	};
-	let mut_match_arms = variant_idents
+	let mut_match_arms = variants
 		.iter()
 		.enumerate()
 		.map(|(i, v)| {
@@ -365,28 +380,28 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 					.map_or_else(|| quote! { None }, |v| quote! { Some(#v) })
 			});
 			quote! {
-				( #(#patterns),* ) => #item_mut_ident::#v(#var.map_unchanged(|#var| &mut #var.0))
+				( #(#patterns),* ) => #item_mut::#v(#var.map_unchanged(|#var| &mut #var.0))
 			}
 		})
 		.chain({
 			let nones = ::std::iter::repeat(quote! { None }).take(len);
 			[
 				quote! {
-					( #(#nones),* ) => panic!("No {} variant components exist", stringify!(#enum_ident))
+					( #(#nones),* ) => panic!("No {} variant components exist", stringify!(#main_enum))
 				},
 				quote! {
 					other => panic!(
 							"Multiple `{}` variant components exist: {:?}\n\
 							Enum component variant should only be changed via EnumCommands",
-							stringify!(#enum_ident), other
+							stringify!(#main_enum), other
 						)
 				},
 			]
 		});
 	let item_mut_impls = quote! {
 		#[automatically_derived]
-		impl<'w> From<#fetch_mut_item_ident<'w>> for #item_mut_ident<'w> {
-			fn from(fetch: #fetch_mut_item_ident<'w>) -> #item_mut_ident<'w> {
+		impl<'w> From<#fetch_mut_item<'w>> for #item_mut<'w> {
+			fn from(fetch: #fetch_mut_item<'w>) -> #item_mut<'w> {
 				match fetch {
 					#(#mut_match_arms),*
 				}
@@ -394,8 +409,8 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 		}
 
 		#[automatically_derived]
-		impl #item_mut_ident<'_> {
-			#vis fn #type_method_ident(&self) -> #type_enum_ident {
+		impl #item_mut<'_> {
+			#vis fn #type_method(&self) -> #type_enum {
 				match self {
 					#(#type_mut_match_arms),*
 				}
@@ -404,9 +419,9 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 	};
 
 	quote! {
-		#item
+		#item_decl
 		#item_impls
-		#item_mut
+		#item_mut_decl
 		#item_mut_impls
 	}
 }
@@ -414,50 +429,53 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		component_ident,
-		state_ident,
-		query_ident,
-		fetch_ident,
-		query_mut_ident,
-		fetch_mut_ident,
-		fetch_mut_item_ident,
-		variant_idents,
+		idents: Idents {
+			component_struct,
+			state,
+			query,
+			fetch,
+			query_mut,
+			fetch_mut,
+			fetch_mut_item,
+			variants,
+			..
+		},
 		..
 	} = ctx;
 
-	let len = variant_idents.len();
+	let len = variants.len();
 	let state_fields = vec![quote! { ::#_crate::bevy_ecs::component::ComponentId }; len];
 	let state_alias = quote! {
 		#[automatically_derived]
-		type #state_ident = (#(#state_fields),*);
+		type #state = (#(#state_fields),*);
 	};
 
 	let read_only_aliases = quote! {
 		#[automatically_derived]
-		type #query_ident<'w> = (
-			#(Option<&'w #component_ident<#variant_idents>>,)*
+		type #query<'w> = (
+			#(Option<&'w #component_struct<#variants>>,)*
 		);
 
 		#[automatically_derived]
-		type #fetch_ident<'w> = (
-			#(::bevy::ecs::query::OptionFetch<'w, &'w #component_ident<#variant_idents>>,)*
+		type #fetch<'w> = (
+			#(::bevy::ecs::query::OptionFetch<'w, &'w #component_struct<#variants>>,)*
 		);
 	};
 
 	let mut_aliases = quote! {
 		#[automatically_derived]
-		type #query_mut_ident<'w> = (
-			#(Option<&'w mut #component_ident<#variant_idents>>,)*
+		type #query_mut<'w> = (
+			#(Option<&'w mut #component_struct<#variants>>,)*
 		);
 
 		#[automatically_derived]
-		type #fetch_mut_ident<'w> = (
-			#(::bevy::ecs::query::OptionFetch<'w, &'w mut #component_ident<#variant_idents>>,)*
+		type #fetch_mut<'w> = (
+			#(::bevy::ecs::query::OptionFetch<'w, &'w mut #component_struct<#variants>>,)*
 		);
 
 		#[automatically_derived]
-		type #fetch_mut_item_ident<'w> = (
-			#(Option<::#_crate::bevy_ecs::world::Mut<'w, #component_ident<#variant_idents>>>,)*
+		type #fetch_mut_item<'w> = (
+			#(Option<::#_crate::bevy_ecs::world::Mut<'w, #component_struct<#variants>>>,)*
 		);
 	};
 
@@ -471,32 +489,35 @@ fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		enum_ident,
-		component_ident,
-		state_ident,
-		item_ident,
-		query_ident,
-		fetch_ident,
-		variant_idents,
+		idents: Idents {
+			main_enum,
+			component_struct,
+			state,
+			item,
+			query,
+			fetch,
+			variants,
+			..
+		},
 		..
 	} = ctx;
 
-	let indices = (0..variant_idents.len()).into_iter().map(syn::Index::from);
+	let indices = (0..variants.len()).into_iter().map(syn::Index::from);
 	let add_reads = indices
 		.clone()
 		.map(|i| quote! { access.add_read(state.#i) });
-	let init_components = variant_idents
+	let init_components = variants
 		.iter()
-		.map(|v| quote! { world.init_component::<#component_ident<#v>>() });
+		.map(|v| quote! { world.init_component::<#component_struct<#v>>() });
 	let set_contains_ids = indices.map(|i| quote! { set_contains_id(state.#i) });
 
 	let world_query_impl = quote! {
 		#[automatically_derived]
-		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #enum_ident {
-			type Item<'a> = #item_ident<'a>;
-			type Fetch<'a> = #fetch_ident<'a>;
+		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #main_enum {
+			type Item<'a> = #item<'a>;
+			type Fetch<'a> = #fetch<'a>;
 			type ReadOnly = Self;
-			type State = #state_ident;
+			type State = #state;
 
 			fn shrink<'wlong: 'wshort, 'wshort>(
 				item: ::#_crate::bevy_ecs::query::QueryItem<'wlong, Self>,
@@ -510,11 +531,11 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				last_change_tick: u32,
 				change_tick: u32,
 			) -> Self::Fetch<'w> {
-				#query_ident::init_fetch(world, state, last_change_tick, change_tick).into()
+				#query::init_fetch(world, state, last_change_tick, change_tick).into()
 			}
 
 			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-				#query_ident::clone_fetch(fetch)
+				#query::clone_fetch(fetch)
 			}
 
 			const IS_DENSE: bool = false;
@@ -526,7 +547,7 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
 				tables: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
-				#query_ident::set_archetype(fetch, state, archetype, tables)
+				#query::set_archetype(fetch, state, archetype, tables)
 			}
 
 			unsafe fn set_table<'w>(
@@ -534,7 +555,7 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				state: &Self::State,
 				table: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
-				#query_ident::set_table(fetch, state, table)
+				#query::set_table(fetch, state, table)
 			}
 
 			unsafe fn fetch<'w>(
@@ -542,7 +563,7 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				entity: Entity,
 				table_row: usize,
 			) -> Self::Item<'w> {
-				#query_ident::fetch(fetch, entity, table_row).into()
+				#query::fetch(fetch, entity, table_row).into()
 			}
 
 
@@ -555,7 +576,7 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				archetype: &::#_crate::bevy_ecs::archetype::Archetype,
 				access: &mut ::#_crate::bevy_ecs::query::Access<::#_crate::bevy_ecs::archetype::ArchetypeComponentId>,
 			) {
-				#query_ident::update_archetype_component_access(state, archetype, access)
+				#query::update_archetype_component_access(state, archetype, access)
 			}
 
 			fn init_state(world: &mut World) -> Self::State {
@@ -573,8 +594,8 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 
 	let read_only_impl = quote! {
 		#[automatically_derived]
-		unsafe impl ::#_crate::bevy_ecs::query::ReadOnlyWorldQuery for #enum_ident {
-			//! SAFETY: All access defers to `&#component_ident`
+		unsafe impl ::#_crate::bevy_ecs::query::ReadOnlyWorldQuery for #main_enum {
+			//! SAFETY: All access defers to `&#component`
 		}
 	};
 
@@ -588,38 +609,41 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
 		vis,
-		enum_ident,
-		component_ident,
-		state_ident,
-		query_mut_struct_ident,
-		item_mut_ident,
-		query_mut_ident,
-		fetch_mut_ident,
-		variant_idents,
+		idents: Idents {
+			main_enum,
+			component_struct,
+			state,
+			query_mut_struct,
+			item_mut,
+			query_mut,
+			fetch_mut,
+			variants,
+			..
+		},
 		..
 	} = ctx;
 
 	let struct_def = quote! {
 		#[automatically_derived]
-		#vis struct #query_mut_struct_ident;
+		#vis struct #query_mut_struct;
 	};
 
-	let indices = (0..variant_idents.len()).into_iter().map(syn::Index::from);
+	let indices = (0..variants.len()).into_iter().map(syn::Index::from);
 	let add_writes = indices
 		.clone()
 		.map(|i| quote! { access.add_write(state.#i) });
-	let init_components = variant_idents
+	let init_components = variants
 		.iter()
-		.map(|v| quote! { world.init_component::<#component_ident<#v>>() });
+		.map(|v| quote! { world.init_component::<#component_struct<#v>>() });
 	let set_contains_ids = indices.map(|i| quote! { set_contains_id(state.#i) });
 
 	let world_query_mut_impl = quote! {
 		#[automatically_derived]
-		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #query_mut_struct_ident {
-			type Item<'a> = #item_mut_ident<'a>;
-			type Fetch<'a> = #fetch_mut_ident<'a>;
-			type ReadOnly = #enum_ident;
-			type State = #state_ident;
+		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #query_mut_struct {
+			type Item<'a> = #item_mut<'a>;
+			type Fetch<'a> = #fetch_mut<'a>;
+			type ReadOnly = #main_enum;
+			type State = #state;
 
 			fn shrink<'wlong: 'wshort, 'wshort>(
 				item: ::#_crate::bevy_ecs::query::QueryItem<'wlong, Self>,
@@ -633,11 +657,11 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				last_change_tick: u32,
 				change_tick: u32,
 			) -> Self::Fetch<'w> {
-				#query_mut_ident::init_fetch(world, state, last_change_tick, change_tick).into()
+				#query_mut::init_fetch(world, state, last_change_tick, change_tick).into()
 			}
 
 			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-				#query_mut_ident::clone_fetch(fetch)
+				#query_mut::clone_fetch(fetch)
 			}
 
 			const IS_DENSE: bool = false; // TODO: Make configurable
@@ -649,7 +673,7 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
 				tables: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
-				#query_mut_ident::set_archetype(fetch, state, archetype, tables)
+				#query_mut::set_archetype(fetch, state, archetype, tables)
 			}
 
 			unsafe fn set_table<'w>(
@@ -657,7 +681,7 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				state: &Self::State,
 				table: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
-				#query_mut_ident::set_table(fetch, state, table)
+				#query_mut::set_table(fetch, state, table)
 			}
 
 			unsafe fn fetch<'w>(
@@ -665,7 +689,7 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				entity: Entity,
 				table_row: usize,
 			) -> Self::Item<'w> {
-				#query_mut_ident::fetch(fetch, entity, table_row).into()
+				#query_mut::fetch(fetch, entity, table_row).into()
 			}
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
@@ -677,7 +701,7 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				archetype: &::#_crate::bevy_ecs::archetype::Archetype,
 				access: &mut ::#_crate::bevy_ecs::query::Access<::#_crate::bevy_ecs::archetype::ArchetypeComponentId>,
 			) {
-				#query_mut_ident::update_archetype_component_access(state, archetype, access)
+				#query_mut::update_archetype_component_access(state, archetype, access)
 			}
 
 			fn init_state(world: &mut World) -> Self::State {
@@ -713,24 +737,27 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
 		vis,
-		component_ident,
-		variant_trait_ident,
-		read_variant_ident,
+		idents: Idents {
+			component_struct,
+			variant_trait,
+			read_variant,
+			..
+		},
 		..
 	} = ctx;
 
 	let struct_def = quote! {
 		#[derive(Debug)]
 		#[automatically_derived]
-		#vis struct #read_variant_ident<T: #variant_trait_ident>(::std::marker::PhantomData<T>);
+		#vis struct #read_variant<T: #variant_trait>(::std::marker::PhantomData<T>);
 	};
 
 	let world_query_impl = quote! {
 		#[automatically_derived]
-		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::WorldQuery for #read_variant_ident<T>
-		where T: #variant_trait_ident<State = ::#_crate::EnumVariantIndex<N>> {
+		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::WorldQuery for #read_variant<T>
+		where T: #variant_trait<State = ::#_crate::EnumVariantIndex<N>> {
 			type Item<'a> = &'a T;
-			type Fetch<'a> = <&'a #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQuery>::Fetch<'a>;
+			type Fetch<'a> = <&'a #component_struct<T> as ::#_crate::bevy_ecs::query::WorldQuery>::Fetch<'a>;
 			type ReadOnly = Self;
 			type State = T::State;
 
@@ -746,11 +773,11 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				last_change_tick: u32,
 				change_tick: u32,
 			) -> Self::Fetch<'w> {
-				<&#component_ident<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
+				<&#component_struct<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 			}
 
 			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-				<&'w #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
+				<&'w #component_struct<T> as ::#_crate::bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
 			}
 
 			const IS_DENSE: bool = false; // TODO: Make configurable
@@ -762,7 +789,7 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
 				tables: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
-				<&#component_ident<T>>::set_archetype(fetch, &state.with, archetype, tables)
+				<&#component_struct<T>>::set_archetype(fetch, &state.with, archetype, tables)
 			}
 
 			unsafe fn set_table<'w>(
@@ -770,7 +797,7 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				state: &Self::State,
 				table: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
-				<&#component_ident<T>>::set_table(fetch, &state.with, table)
+				<&#component_struct<T>>::set_table(fetch, &state.with, table)
 			}
 
 			unsafe fn fetch<'w>(
@@ -778,7 +805,7 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				entity: Entity,
 				table_row: usize,
 			) -> Self::Item<'w> {
-				&<&#component_ident<T>>::fetch(fetch, entity, table_row).0
+				&<&#component_struct<T>>::fetch(fetch, entity, table_row).0
 			}
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
@@ -790,7 +817,7 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				archetype: &::#_crate::bevy_ecs::archetype::Archetype,
 				access: &mut ::#_crate::bevy_ecs::query::Access<::#_crate::bevy_ecs::archetype::ArchetypeComponentId>,
 			) {
-				<&#component_ident<T>>::update_archetype_component_access(&state.with, archetype, access)
+				<&#component_struct<T>>::update_archetype_component_access(&state.with, archetype, access)
 			}
 
 			fn init_state(world: &mut World) -> Self::State {
@@ -816,9 +843,9 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 
 	let read_only_impl = quote! {
 		#[automatically_derived]
-		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::ReadOnlyWorldQuery for #read_variant_ident<T>
-		where T: #variant_trait_ident<State = ::#_crate::EnumVariantIndex<N>> {
-			//! Safety: All access defers to `&#component_ident`
+		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::ReadOnlyWorldQuery for #read_variant<T>
+		where T: #variant_trait<State = ::#_crate::EnumVariantIndex<N>> {
+			//! Safety: All access defers to `&#component_struct`
 		}
 	};
 
@@ -833,26 +860,29 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
 		vis,
-		component_ident,
-		variant_trait_ident,
-		read_variant_ident,
-		write_variant_ident,
+		idents: Idents {
+			component_struct,
+			variant_trait,
+			read_variant,
+			write_variant,
+			..
+		},
 		..
 	} = ctx;
 
 	let struct_def = quote! {
 		#[derive(Debug)]
 		#[automatically_derived]
-		#vis struct #write_variant_ident<T: #variant_trait_ident>(::std::marker::PhantomData<T>);
+		#vis struct #write_variant<T: #variant_trait>(::std::marker::PhantomData<T>);
 	};
 
 	let world_query_impl = quote! {
 		#[automatically_derived]
-		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::WorldQuery for #write_variant_ident<T>
-		where T: #variant_trait_ident<State = ::#_crate::EnumVariantIndex<N>> {
+		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::WorldQuery for #write_variant<T>
+		where T: #variant_trait<State = ::#_crate::EnumVariantIndex<N>> {
 			type Item<'a> = ::#_crate::bevy_ecs::world::Mut<'a, T>;
-			type Fetch<'a> = <&'a mut #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQuery>::Fetch<'a>;
-			type ReadOnly = #read_variant_ident<T>;
+			type Fetch<'a> = <&'a mut #component_struct<T> as ::#_crate::bevy_ecs::query::WorldQuery>::Fetch<'a>;
+			type ReadOnly = #read_variant<T>;
 			type State = T::State;
 
 			fn shrink<'wlong: 'wshort, 'wshort>(
@@ -867,11 +897,11 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				last_change_tick: u32,
 				change_tick: u32,
 			) -> Self::Fetch<'w> {
-				<&mut #component_ident<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
+				<&mut #component_struct<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 			}
 
 			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-				<&'w mut #component_ident<T> as ::#_crate::bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
+				<&'w mut #component_struct<T> as ::#_crate::bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
 			}
 
 			const IS_DENSE: bool = false; // TODO: Make configurable
@@ -883,7 +913,7 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
 				tables: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
-				<&mut #component_ident<T>>::set_archetype(fetch, &state.with, archetype, tables)
+				<&mut #component_struct<T>>::set_archetype(fetch, &state.with, archetype, tables)
 			}
 
 			unsafe fn set_table<'w>(
@@ -891,7 +921,7 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				state: &Self::State,
 				table: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
-				<&mut #component_ident<T>>::set_table(fetch, &state.with, table)
+				<&mut #component_struct<T>>::set_table(fetch, &state.with, table)
 			}
 
 			unsafe fn fetch<'w>(
@@ -899,7 +929,7 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				entity: Entity,
 				table_row: usize,
 			) -> Self::Item<'w> {
-				<&mut #component_ident<T>>::fetch(fetch, entity, table_row).map_unchanged(|it| &mut it.0)
+				<&mut #component_struct<T>>::fetch(fetch, entity, table_row).map_unchanged(|it| &mut it.0)
 			}
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
@@ -911,7 +941,7 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				archetype: &::#_crate::bevy_ecs::archetype::Archetype,
 				access: &mut ::#_crate::bevy_ecs::query::Access<::#_crate::bevy_ecs::archetype::ArchetypeComponentId>,
 			) {
-				<&mut #component_ident<T>>::update_archetype_component_access(
+				<&mut #component_struct<T>>::update_archetype_component_access(
 					&state.with,
 					archetype,
 					access,
@@ -947,8 +977,11 @@ fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 
 fn variant_component(ctx: &Context) -> impl ToTokens {
 	let Context {
-		component_ident,
-		variant_trait_ident,
+		idents: Idents {
+			component_struct,
+			variant_trait,
+			..
+		},
 		..
 	} = ctx;
 
@@ -961,19 +994,22 @@ fn variant_component(ctx: &Context) -> impl ToTokens {
 			#[derive(Debug, Component)]
 			#[automatically_derived]
 			#[repr(transparent)]
-			pub struct #component_ident<T: #variant_trait_ident>(pub T);
+			pub struct #component_struct<T: #variant_trait>(pub T);
 		}
 
-		use component::#component_ident; // TODO: make private to prevent user from adding component manually
+		use component::#component_struct; // TODO: make private to prevent user from adding component manually
 	}
 }
 
 fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		type_enum_ident,
-		type_method_ident,
-		variant_trait_ident,
+		idents: Idents {
+			type_enum,
+			type_method,
+			variant_trait,
+			..
+		},
 		..
 	} = &ctx;
 
@@ -981,11 +1017,11 @@ fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
 		#[automatically_derived]
 		mod sealed { pub trait Sealed {} }
 		#[automatically_derived]
-		pub trait #variant_trait_ident : sealed::Sealed + Send + Sync + 'static {
+		pub trait #variant_trait : sealed::Sealed + Send + Sync + 'static {
 			type State: Send + Sync + Sized;
 			fn init_state(world: &mut World) -> Self::State;
 			fn insert_into(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands);
-			fn #type_method_ident() -> #type_enum_ident;
+			fn #type_method() -> #type_enum;
 		}
 	}
 }
@@ -993,11 +1029,14 @@ fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
 fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 	let Context {
 		_crate,
-		type_enum_ident,
-		type_method_ident,
-		component_ident,
-		variant_trait_ident,
-		variant_idents,
+		idents: Idents {
+			type_enum,
+			type_method,
+			component_struct,
+			variant_trait,
+			variants,
+			..
+		},
 		data,
 		..
 	} = ctx;
@@ -1007,14 +1046,14 @@ fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 
 	variant_struct_defs
 		.iter()
-		.map(|(variant_ident, tokens)| {
-			let excluded = variant_idents
+		.map(|(variant, tokens)| {
+			let excluded = variants
 				.iter()
-				.filter_map(|other_ident| {
-					if variant_ident == other_ident {
+				.filter_map(|other| {
+					if variant == other {
 						None
 					} else {
-						Some(*other_ident)
+						Some(*other)
 					}
 				})
 				.collect::<Vec<_>>();
@@ -1023,27 +1062,27 @@ fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 				#[derive(Debug, Clone, PartialEq)]
 				#[automatically_derived]
 				#tokens
-				impl sealed::Sealed for #variant_ident {}
+				impl sealed::Sealed for #variant {}
 				#[automatically_derived]
-				impl #variant_trait_ident for #variant_ident {
+				impl #variant_trait for #variant {
 					type State = ::#_crate::EnumVariantIndex<{#num_excluded_types}>;
 
 					fn init_state(world: &mut World) -> Self::State {
 						::#_crate::EnumVariantIndex {
-							with: world.init_component::<#component_ident<#variant_ident>>(),
+							with: world.init_component::<#component_struct<#variant>>(),
 							without: [
-								#(world.init_component::<#component_ident<#excluded>>(),)*
+								#(world.init_component::<#component_struct<#excluded>>(),)*
 							],
 						}
 					}
 
 					fn insert_into(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
-						cmds.insert(#component_ident(self))
-							#(.remove::<#component_ident<#excluded>>())*;
+						cmds.insert(#component_struct(self))
+							#(.remove::<#component_struct<#excluded>>())*;
 					}
 
-					fn #type_method_ident() -> #type_enum_ident {
-						#type_enum_ident::#variant_ident
+					fn #type_method() -> #type_enum {
+						#type_enum::#variant
 					}
 				}
 			}
@@ -1055,14 +1094,14 @@ fn variant_struct_defs<'ctx>(
 	ctx: &'ctx Context,
 ) -> impl Iterator<Item = (&'ctx Ident, TokenStream2)> + 'ctx {
 	ctx.data.variants.iter().map(|v| {
-		let variant_ident = &v.ident;
+		let variant = &v.ident;
 		(
-			variant_ident,
+			variant,
 			match &v.fields {
 				Fields::Named(fields) => {
 					let fields = fields.named.iter();
 					quote! {
-						pub struct #variant_ident {
+						pub struct #variant {
 							#(pub #fields,)*
 						}
 					}
@@ -1070,12 +1109,12 @@ fn variant_struct_defs<'ctx>(
 				Fields::Unnamed(fields) => {
 					let fields = fields.unnamed.iter();
 					quote! {
-						pub struct #variant_ident ( #(pub #fields,)* );
+						pub struct #variant ( #(pub #fields,)* );
 					}
 				}
 				Fields::Unit => {
 					quote! {
-						pub struct #variant_ident;
+						pub struct #variant;
 					}
 				}
 			},
