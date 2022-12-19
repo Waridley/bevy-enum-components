@@ -1,42 +1,97 @@
 use convert_case::{Case::Snake, Casing};
 use proc_macro::{Span, TokenStream};
+use std::collections::HashMap;
 use proc_macro_crate::FoundCrate;
 use quote::{format_ident, quote, ToTokens};
-use syn::{
-	parse_macro_input, Attribute, Data, DataEnum, DeriveInput, Fields, Generics, Ident, Visibility,
-};
+use syn::{parse_macro_input, Attribute, Data, DataEnum, DeriveInput, Fields, Generics, Ident, Visibility, Path, Meta};
 
 type TokenStream2 = proc_macro2::TokenStream;
 
 #[allow(unused)]
 pub(crate) struct Context<'data> {
-	_crate: Ident,
-	attrs: Vec<Attribute>,
-	vis: Visibility,
-	generics: Generics,
-	idents: Idents<'data>,
-	data: &'data DataEnum,
+	pub _crate: Ident,
+	pub attrs: Attrs<'data>,
+	pub vis: Visibility,
+	pub generics: Generics,
+	pub idents: Idents<'data>,
+	pub data: &'data DataEnum,
 }
 
+#[allow(unused)]
+pub(crate) struct Attrs<'data> {
+	pub input: Vec<Attribute>,
+	pub wrapper_derives: HashMap<&'data Ident, Vec<Path>>,
+	pub variant_derives: HashMap<&'data Ident, Vec<Path>>,
+	pub mutable: bool,
+	pub swappable: bool,
+}
+
+impl Attrs<'_> {
+	fn parse(attrs: Vec<Attribute>, data: &DataEnum) -> Self {
+		// TODO: build these
+		let wrapper_derives = HashMap::new();
+		let variant_derives = HashMap::new();
+		let mutable = false;
+		let swappable = false;
+		
+		Attrs {
+			input: attrs,
+			wrapper_derives,
+			variant_derives,
+			mutable,
+			swappable,
+		}
+	}
+}
+
+#[allow(unused)]
 pub(crate) struct Idents<'data> {
-	main_enum: Ident,
-	module: Ident,
-	variant_trait: Ident,
-	type_enum: Ident,
-	type_method: Ident,
-	component_struct: Ident,
-	state: Ident,
-	item: Ident,
-	query: Ident,
-	fetch: Ident,
-	query_mut_struct: Ident,
-	item_mut: Ident,
-	query_mut: Ident,
-	fetch_mut: Ident,
-	fetch_mut_item: Ident,
-	read_variant: Ident,
-	write_variant: Ident,
-	variants: Vec<&'data Ident>,
+	pub main_enum: Ident,
+	pub module: Ident,
+	pub variant_trait: Ident,
+	pub type_enum: Ident,
+	pub type_method: Ident,
+	pub component_struct: Ident,
+	pub state: Ident,
+	pub item: Ident,
+	pub query: Ident,
+	pub fetch: Ident,
+	pub query_mut_struct: Ident,
+	pub item_mut: Ident,
+	pub query_mut: Ident,
+	pub fetch_mut: Ident,
+	pub fetch_mut_item: Ident,
+	pub read_variant: Ident,
+	pub write_variant: Ident,
+	pub variants: Vec<&'data Ident>,
+}
+
+impl<'data> Idents<'data> {
+	fn generate(main_enum: Ident, data: &'data DataEnum) -> Self {
+		// TODO: Could some of these names be simiplified since they are inside the module?
+		//   - Alternatively, should they be moved outside the module?
+		let type_enum = format_ident!("{main_enum}Type");
+		Self {
+			module: format_ident!("{}", main_enum.to_string().to_case(Snake)),
+			variant_trait: format_ident!("{main_enum}Variant"),
+			type_method: format_ident!("{}", type_enum.to_string().to_case(Snake)),
+			type_enum,
+			component_struct: format_ident!("{main_enum}Component"),
+			state: format_ident!("{main_enum}State"),
+			item: format_ident!("{main_enum}Item"),
+			query: format_ident!("{main_enum}Query"),
+			fetch: format_ident!("{main_enum}Fetch"),
+			query_mut_struct: format_ident!("{main_enum}Mut"),
+			item_mut: format_ident!("{main_enum}ItemMut"),
+			query_mut: format_ident!("{main_enum}QueryMut"),
+			fetch_mut: format_ident!("{main_enum}FetchMut"),
+			fetch_mut_item: format_ident!("{main_enum}FetchMutItem"),
+			read_variant: format_ident!("Read{main_enum}"),
+			write_variant: format_ident!("Write{main_enum}"),
+			variants: data.variants.iter().map(|v| &v.ident).collect::<Vec<_>>(),
+			main_enum, // move last
+		}
+	}
 }
 
 #[proc_macro_derive(EnumComponent)]
@@ -64,35 +119,16 @@ pub fn derive_enum_component(input: TokenStream) -> TokenStream {
 				.into()
 		}
 	};
-
-	// TODO: Could some of these names be simiplified since they are inside the module?
-	//   - Alternatively, should they be moved outside the module?
-	let type_enum = format_ident!("{ident}Type");
+	
+	let attrs = Attrs::parse(attrs, data);
+	let idents = Idents::generate(ident, data);
+	
 	let ctx = Context {
 		_crate,
 		attrs,
 		vis,
 		generics,
-		idents: Idents {
-			module: format_ident!("{}", ident.to_string().to_case(Snake)),
-			variant_trait: format_ident!("{ident}Variant"),
-			type_method: format_ident!("{}", type_enum.to_string().to_case(Snake)),
-			type_enum,
-			component_struct: format_ident!("{ident}Component"),
-			state: format_ident!("{ident}State"),
-			item: format_ident!("{ident}Item"),
-			query: format_ident!("{ident}Query"),
-			fetch: format_ident!("{ident}Fetch"),
-			query_mut_struct: format_ident!("{ident}Mut"),
-			item_mut: format_ident!("{ident}ItemMut"),
-			query_mut: format_ident!("{ident}QueryMut"),
-			fetch_mut: format_ident!("{ident}FetchMut"),
-			fetch_mut_item: format_ident!("{ident}FetchMutItem"),
-			read_variant: format_ident!("Read{ident}"),
-			write_variant: format_ident!("Write{ident}"),
-			variants: data.variants.iter().map(|v| &v.ident).collect::<Vec<_>>(),
-			main_enum: ident, // move last
-		},
+		idents,
 		data,
 	};
 
@@ -592,10 +628,11 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 		}
 	};
 
+	let safety = format!("SAFETY: All access defers to `&{}`", component_struct);
 	let read_only_impl = quote! {
 		#[automatically_derived]
 		unsafe impl ::#_crate::bevy_ecs::query::ReadOnlyWorldQuery for #main_enum {
-			//! SAFETY: All access defers to `&#component`
+			#![doc = #safety]
 		}
 	};
 
@@ -840,12 +877,13 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 			}
 		}
 	};
-
+	
+	let safety = format!("SAFETY: All access defers to `&{}`", component_struct);
 	let read_only_impl = quote! {
 		#[automatically_derived]
 		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::ReadOnlyWorldQuery for #read_variant<T>
 		where T: #variant_trait<State = ::#_crate::EnumVariantIndex<N>> {
-			//! Safety: All access defers to `&#component_struct`
+			#![doc = #safety]
 		}
 	};
 
@@ -998,7 +1036,7 @@ fn variant_component(ctx: &Context) -> impl ToTokens {
 			pub struct #component_struct<T: #variant_trait>(pub T);
 		}
 
-		use component::#component_struct; // TODO: make private to prevent user from adding component manually
+		use component::#component_struct;
 	}
 }
 
