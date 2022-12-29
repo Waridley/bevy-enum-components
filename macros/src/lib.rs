@@ -103,8 +103,8 @@ pub(crate) struct Idents<'data> {
 	pub main_enum: Ident,
 	pub module: Ident,
 	pub variant_trait: Ident,
-	pub type_enum: Ident,
-	pub type_method: Ident,
+	pub tag_enum: Ident,
+	pub tag_method: Ident,
 	pub component_struct: Ident,
 	pub state: Ident,
 	pub item: Ident,
@@ -146,12 +146,12 @@ impl<'data> Idents<'data> {
 	fn generate(main_enum: Ident, data: &'data DataEnum) -> Self {
 		// TODO: Could some of these names be simiplified since they are inside the module?
 		//   - Alternatively, should they be moved outside the module?
-		let type_enum = format_ident!("{main_enum}Type");
+		let tag_enum = format_ident!("{main_enum}Tag");
 		Self {
 			module: format_ident!("{}", main_enum.to_string().to_case(Snake)),
 			variant_trait: format_ident!("{main_enum}Variant"),
-			type_method: format_ident!("{}", type_enum.to_string().to_case(Snake)),
-			type_enum,
+			tag_method: format_ident!("tag"),
+			tag_enum,
 			component_struct: format_ident!("{main_enum}Component"),
 			state: format_ident!("{main_enum}State"),
 			item: format_ident!("{main_enum}Item"),
@@ -206,7 +206,7 @@ fn attr_list<'a>(
 
 fn module(ctx: &Context) -> impl ToTokens {
 	let enum_impls = enum_impls(ctx);
-	let type_enum = type_enum(ctx);
+	let tag_enum = tag_enum(ctx);
 	let variant_component = variant_component(ctx);
 	let variant_trait = variant_trait_decl(ctx);
 	let variant_structs = variant_structs(ctx);
@@ -226,7 +226,7 @@ fn module(ctx: &Context) -> impl ToTokens {
 			#enum_impls
 			#enum_world_queries
 
-			#type_enum
+			#tag_enum
 
 			#variant_trait
 			#(#variant_structs)*
@@ -240,12 +240,10 @@ fn module(ctx: &Context) -> impl ToTokens {
 fn enum_impls(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		vis,
 		idents:
 			Idents {
 				main_enum,
-				type_enum,
-				type_method,
+				tag_enum,
 				component_struct,
 				variants,
 				..
@@ -286,16 +284,22 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 	let type_match_arms = data.variants.iter().map(|v| {
 		let ident = &v.ident;
 		match v.fields {
-			Fields::Named(..) => quote! { Self::#ident { .. } => #type_enum::#ident },
-			Fields::Unnamed(..) => quote! { Self::#ident(..) => #type_enum::#ident },
-			Fields::Unit => quote! { Self::#ident => #type_enum::#ident },
+			Fields::Named(..) => quote! { Self::#ident { .. } => #tag_enum::#ident },
+			Fields::Unnamed(..) => quote! { Self::#ident(..) => #tag_enum::#ident },
+			Fields::Unit => quote! { Self::#ident => #tag_enum::#ident },
 		}
 	});
 
 	quote! {
 		#[automatically_derived]
 		impl ::#_crate::EnumComponent for #main_enum {
-			type Tag = #type_enum;
+			type Tag = #tag_enum;
+
+			fn tag(&self) -> Self::Tag {
+				match self {
+					#(#type_match_arms),*
+				}
+			}
 
 			fn dispatch_to(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
 				match self {
@@ -312,24 +316,15 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 
 		#[automatically_derived]
 		impl ::#_crate::bevy_ecs::query::ArchetypeFilter for #main_enum {}
-
-		#[automatically_derived]
-		impl #main_enum {
-			#vis fn #type_method(&self) -> #type_enum {
-				match self {
-					#(#type_match_arms),*
-				}
-			}
-		}
 	}
 }
 
-fn type_enum(ctx: &Context) -> impl ToTokens {
+fn tag_enum(ctx: &Context) -> impl ToTokens {
 	let Context {
 		vis,
 		idents: Idents {
 			main_enum,
-			type_enum,
+			tag_enum,
 			item,
 			variants,
 			..
@@ -341,26 +336,26 @@ fn type_enum(ctx: &Context) -> impl ToTokens {
 	let enum_match_arms = data.variants.iter().map(|v| {
 		let ident = &v.ident;
 		match v.fields {
-			Fields::Named(..) => quote! { #main_enum::#ident { .. } => #type_enum::#ident },
-			Fields::Unnamed(..) => quote! { #main_enum::#ident(..) => #type_enum::#ident },
-			Fields::Unit => quote! { #main_enum::#ident => #type_enum::#ident },
+			Fields::Named(..) => quote! { #main_enum::#ident { .. } => #tag_enum::#ident },
+			Fields::Unnamed(..) => quote! { #main_enum::#ident(..) => #tag_enum::#ident },
+			Fields::Unit => quote! { #main_enum::#ident => #tag_enum::#ident },
 		}
 	});
 
 	let item_match_arms = variants.iter().map(|v| {
-		quote! { #item::#v(..) => #type_enum::#v }
+		quote! { #item::#v(..) => #tag_enum::#v }
 	});
 
 	quote! {
 		#[allow(clippy::derive_partial_eq_without_eq)]
 		#[derive(Component, Debug, Copy, Clone, PartialEq)]
 		#[automatically_derived]
-		#vis enum #type_enum {
+		#vis enum #tag_enum {
 			#(#variants),*
 		}
 
 		#[automatically_derived]
-		impl From<&#main_enum> for #type_enum {
+		impl From<&#main_enum> for #tag_enum {
 			fn from(value: &#main_enum) -> Self {
 				match value {
 					#(#enum_match_arms),*
@@ -369,7 +364,7 @@ fn type_enum(ctx: &Context) -> impl ToTokens {
 		}
 
 		#[automatically_derived]
-		impl From<&#item<'_>> for #type_enum {
+		impl From<&#item<'_>> for #tag_enum {
 			fn from(value: &#item) -> Self {
 				match value {
 					#(#item_match_arms),*
@@ -399,8 +394,8 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 		idents:
 			Idents {
 				main_enum,
-				type_enum,
-				type_method,
+				tag_enum,
+				tag_method,
 				item,
 				query,
 				item_mut,
@@ -452,7 +447,7 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 			]
 		});
 	let type_match_arms = variants.iter().map(|v| {
-		quote! { Self::#v(..) => #type_enum::#v }
+		quote! { Self::#v(..) => #tag_enum::#v }
 	});
 	let type_mut_match_arms = type_match_arms.clone();
 	let item_impls = quote! {
@@ -467,7 +462,7 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 
 		#[automatically_derived]
 		impl #item<'_> {
-			#vis fn #type_method(&self) -> #type_enum {
+			#vis fn #tag_method(&self) -> #tag_enum {
 				match self {
 					#(#type_match_arms),*
 				}
@@ -523,7 +518,7 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 
 		#[automatically_derived]
 		impl #item_mut<'_> {
-			#vis fn #type_method(&self) -> #type_enum {
+			#vis fn #tag_method(&self) -> #tag_enum {
 				match self {
 					#(#type_mut_match_arms),*
 				}
@@ -954,8 +949,8 @@ fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
 		idents: Idents {
-			type_enum,
-			type_method,
+			tag_enum,
+			tag_method,
 			variant_trait,
 			..
 		},
@@ -970,7 +965,7 @@ fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
 			type State: Send + Sync + Sized;
 			fn init_state(world: &mut World) -> Self::State;
 			fn insert_into(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands);
-			fn #type_method() -> #type_enum;
+			fn #tag_method() -> #tag_enum;
 		}
 	}
 }
@@ -980,8 +975,8 @@ fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 		_crate,
 		idents:
 			Idents {
-				type_enum,
-				type_method,
+				tag_enum,
+				tag_method,
 				component_struct,
 				variant_trait,
 				variants,
@@ -1024,8 +1019,8 @@ fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 							#(.remove::<#component_struct<#excluded>>())*;
 					}
 
-					fn #type_method() -> #type_enum {
-						#type_enum::#variant
+					fn #tag_method() -> #tag_enum {
+						#tag_enum::#variant
 					}
 				}
 			}

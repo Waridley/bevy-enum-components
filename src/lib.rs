@@ -25,6 +25,7 @@ pub use macros::EnumComponent;
 pub trait EnumComponent {
 	type Tag: Send + Sync + 'static;
 
+	fn tag(&self) -> Self::Tag;
 	fn dispatch_to(self, cmds: &mut EntityCommands);
 	fn remove_from(cmds: &mut EntityCommands);
 }

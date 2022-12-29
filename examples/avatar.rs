@@ -122,24 +122,24 @@ impl Attack for element::Fire {
 	}
 }
 
-impl PartialEq<NationType> for ElementType {
-	fn eq(&self, nation: &NationType) -> bool {
+impl PartialEq<NationTag> for ElementTag {
+	fn eq(&self, nation: &NationTag) -> bool {
 		match nation {
-			NationType::Air => *self == ElementType::Air,
-			NationType::Water => *self == ElementType::Water,
-			NationType::Earth => *self == ElementType::Earth,
-			NationType::Fire => *self == ElementType::Fire,
+			NationTag::Air => *self == ElementTag::Air,
+			NationTag::Water => *self == ElementTag::Water,
+			NationTag::Earth => *self == ElementTag::Earth,
+			NationTag::Fire => *self == ElementTag::Fire,
 		}
 	}
 }
 
 impl From<&Nation> for Element {
 	fn from(nation: &Nation) -> Self {
-		match nation.nation_type() {
-			NationType::Air => Element::Air,
-			NationType::Water => Element::Water,
-			NationType::Earth => Element::Earth,
-			NationType::Fire => Element::Fire,
+		match nation.tag() {
+			NationTag::Air => Element::Air,
+			NationTag::Water => Element::Water,
+			NationTag::Earth => Element::Earth,
+			NationTag::Fire => Element::Fire,
 		}
 	}
 }
@@ -154,9 +154,9 @@ struct DiscoveredAsAvatar(bool);
 
 /// Cycle through elements to bend for each Avatar
 fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element), With<Avatar>>) {
-	use ElementType::*;
+	use ElementTag::*;
 	for (id, element) in &mut q {
-		let next_element = match element.element_type() {
+		let next_element = match element.tag() {
 			Air => Element::Water,
 			Water => Element::Earth,
 			Earth => Element::Fire,
@@ -181,7 +181,7 @@ fn attack<E: Attack + EnumComponentVariant<Enum = Element, State = EnumVariantIn
 			}
 			Fire(..) => "the Fire Nation".into(),
 		};
-		if !discovered.0 && E::tag() != NationType::from(&nation) {
+		if !discovered.0 && E::tag() != NationTag::from(&nation) {
 			discovered.0 = true;
 			println!("Whoa! Isn't {name} from {origin}?! They must be the Avatar!");
 		}
@@ -202,7 +202,7 @@ fn check_avatar(
 	mut q: Query<(&Name, Element, &mut MasteredElements)>,
 	mut exit: EventWriter<AppExit>,
 ) {
-	use ElementType::*;
+	use ElementTag::*;
 	for (Name(name), curr_elem, mut mastered) in &mut q {
 		let MasteredElements {
 			air,
@@ -210,7 +210,7 @@ fn check_avatar(
 			earth,
 			fire,
 		} = &mut *mastered;
-		match curr_elem.element_type() {
+		match curr_elem.tag() {
 			Air => *air = true,
 			Water => *water = true,
 			Earth => *earth = true,
