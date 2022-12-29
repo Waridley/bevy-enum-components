@@ -1,45 +1,99 @@
 use convert_case::{Case::Snake, Casing};
 use proc_macro::{Span, TokenStream};
-use std::collections::HashMap;
 use proc_macro_crate::FoundCrate;
 use quote::{format_ident, quote, ToTokens};
-use syn::{parse_macro_input, Attribute, Data, DataEnum, DeriveInput, Fields, Generics, Ident, Visibility, Path, Meta};
+use std::collections::HashMap;
+use syn::{
+	parse_macro_input, Attribute, Data, DataEnum, DeriveInput, Expr, Fields, Generics, Ident, Meta,
+	NestedMeta, Path, Variant, Visibility,
+};
 
 type TokenStream2 = proc_macro2::TokenStream;
+
+#[proc_macro_derive(EnumComponent, attributes(component))]
+pub fn derive_enum_component(input: TokenStream) -> TokenStream {
+	let _crate = proc_macro_crate::crate_name("sond-bevy-enum-components")
+		.map(|found| match found {
+			FoundCrate::Itself => format_ident!("sond_bevy_enum_components"),
+			FoundCrate::Name(name) => format_ident!("{name}"),
+		})
+		.unwrap();
+
+	let DeriveInput {
+		attrs,
+		vis,
+		ident,
+		generics,
+		data,
+	} = parse_macro_input!(input as DeriveInput);
+
+	let data = match &data {
+		Data::Enum(data) => data,
+		_ => {
+			return syn::Error::new(Span::call_site().into(), "Only enums are supported")
+				.into_compile_error()
+				.into()
+		}
+	};
+
+	let attrs = Attrs::parse(attrs);
+	let idents = Idents::generate(ident, data);
+
+	let variants = data.variants.iter().map(|v| (&v.ident, v.into())).collect();
+
+	let ctx = Context {
+		_crate,
+		attrs,
+		vis,
+		generics,
+		idents,
+		variants,
+		data,
+	};
+
+	module(&ctx).into_token_stream().into()
+}
 
 #[allow(unused)]
 pub(crate) struct Context<'data> {
 	pub _crate: Ident,
-	pub attrs: Attrs<'data>,
+	pub attrs: Attrs,
 	pub vis: Visibility,
 	pub generics: Generics,
 	pub idents: Idents<'data>,
+	pub variants: HashMap<&'data Ident, VariantData<'data>>,
 	pub data: &'data DataEnum,
 }
 
 #[allow(unused)]
-pub(crate) struct Attrs<'data> {
-	pub input: Vec<Attribute>,
-	pub wrapper_derives: HashMap<&'data Ident, Vec<Path>>,
-	pub variant_derives: HashMap<&'data Ident, Vec<Path>>,
+pub(crate) struct Attrs {
+	pub component_attrs: Vec<NestedMeta>,
+	pub derives: Vec<Path>,
 	pub mutable: bool,
-	pub swappable: bool,
+	pub input: Vec<Attribute>,
 }
 
-impl Attrs<'_> {
-	fn parse(attrs: Vec<Attribute>, data: &DataEnum) -> Self {
-		// TODO: build these
-		let wrapper_derives = HashMap::new();
-		let variant_derives = HashMap::new();
-		let mutable = false;
-		let swappable = false;
-		
+impl Attrs {
+	fn parse(attrs: Vec<Attribute>) -> Self {
+		let component_attrs = attr_list(&mut attrs.iter(), "component");
+		let derives = collect_derives(&mut component_attrs.iter());
+		let mutable = component_attrs
+			.iter()
+			.find_map(|attr| match attr {
+				NestedMeta::Meta(meta) => meta
+					.path()
+					.segments
+					.last()
+					.and_then(|seg| (seg.ident == "mutable").then(|| ())),
+				_ => None,
+			})
+			.is_some();
+
 		Attrs {
-			input: attrs,
-			wrapper_derives,
-			variant_derives,
+			component_attrs,
+			derives,
 			mutable,
-			swappable,
+			input: attrs,
 		}
 	}
 }
@@ -64,6 +118,28 @@ pub(crate) struct Idents<'data> {
 	pub read_variant: Ident,
 	pub write_variant: Ident,
 	pub variants: Vec<&'data Ident>,
+}
+
+#[allow(unused)]
+pub(crate) struct VariantData<'data> {
+	pub ident: &'data Ident,
+	pub derives: Vec<Path>,
+	pub discriminant: Option<&'data Expr>,
+	pub input: &'data Variant,
+}
+
+impl<'data> From<&'data Variant> for VariantData<'data> {
+	fn from(value: &'data Variant) -> Self {
+		let component_attrs = attr_list(&mut value.attrs.iter(), "component");
+		let derives = collect_derives(&mut component_attrs.iter());
+
+		Self {
+			ident: &value.ident,
+			derives,
+			discriminant: value.discriminant.as_ref().map(|d| &d.1),
+			input: value,
+		}
+	}
 }
 
 impl<'data> Idents<'data> {
@@ -94,45 +170,38 @@ impl<'data> Idents<'data> {
 	}
 }
 
-#[proc_macro_derive(EnumComponent)]
-pub fn derive_enum_component(input: TokenStream) -> TokenStream {
-	let _crate = proc_macro_crate::crate_name("sond-bevy-enum-components")
-		.map(|found| match found {
-			FoundCrate::Itself => format_ident!("sond_bevy_enum_components"),
-			FoundCrate::Name(name) => format_ident!("{name}"),
-		})
-		.unwrap();
-
-	let DeriveInput {
-		attrs,
-		vis,
-		ident,
-		generics,
-		data,
-	} = parse_macro_input!(input as DeriveInput);
-
-	let data = match &data {
-		Data::Enum(data) => data,
-		_ => {
-			return syn::Error::new(Span::call_site().into(), "Only enums are supported")
-				.into_compile_error()
-				.into()
+fn collect_derives<'a>(metas: impl Iterator<Item = &'a NestedMeta>) -> Vec<Path> {
+	metas.fold(vec![], |mut acc, item| {
+		match item {
+			NestedMeta::Meta(Meta::List(list)) => {
+				if list.path.segments.last().unwrap().ident == "derive" {
+					list.nested.iter().for_each(|meta| match meta {
+						NestedMeta::Meta(Meta::Path(path)) => acc.push(path.clone()),
+						other => panic!("unexpected derive input {other:?}"),
+					});
+				}
+			}
+			_ => {}
 		}
-	};
-	
-	let attrs = Attrs::parse(attrs, data);
-	let idents = Idents::generate(ident, data);
-	
-	let ctx = Context {
-		_crate,
-		attrs,
-		vis,
-		generics,
-		idents,
-		data,
-	};
+		acc
+	})
+}
 
-	module(&ctx).into_token_stream().into()
+fn attr_list<'a>(
+	attrs: impl Iterator<Item = &'a Attribute>,
+	path: impl AsRef<str>,
+) -> Vec<NestedMeta> {
+	attrs.fold(vec![], |mut acc, attr| {
+		attr.path
+			.segments
+			.last()
+			.filter(|seg| seg.ident == path)
+			.map(|_| match attr.parse_meta().unwrap() {
+				Meta::List(list) => acc.extend(list.nested.into_iter()),
+				other => panic!("unexpected component attribute {other:?}"),
+			});
+		acc
+	})
 }
 
 fn module(ctx: &Context) -> impl ToTokens {
@@ -143,7 +212,11 @@ fn module(ctx: &Context) -> impl ToTokens {
 	let variant_structs = variant_structs(ctx);
 	let enum_world_queries = enum_world_queries(ctx);
 	let variant_world_queries = variant_world_queries(ctx);
-	let Context { vis, idents: Idents { module, .. }, .. } = ctx;
+	let Context {
+		vis,
+		idents: Idents { module, .. },
+		..
+	} = ctx;
 
 	quote! {
 		#[automatically_derived]
@@ -168,14 +241,15 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
 		vis,
-		idents: Idents {
-			main_enum,
-			type_enum,
-			type_method,
-			component_struct,
-			variants,
-			..
-		},
+		idents:
+			Idents {
+				main_enum,
+				type_enum,
+				type_method,
+				component_struct,
+				variants,
+				..
+			},
 		data,
 		..
 	} = ctx;
@@ -221,6 +295,8 @@ fn enum_impls(ctx: &Context) -> impl ToTokens {
 	quote! {
 		#[automatically_derived]
 		impl ::#_crate::EnumComponent for #main_enum {
+			type Tag = #type_enum;
+
 			fn dispatch_to(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
 				match self {
 					#(Self::#variant_patterns =>
@@ -277,7 +353,7 @@ fn type_enum(ctx: &Context) -> impl ToTokens {
 
 	quote! {
 		#[allow(clippy::derive_partial_eq_without_eq)]
-		#[derive(Debug, Copy, Clone, PartialEq)]
+		#[derive(Component, Debug, Copy, Clone, PartialEq)]
 		#[automatically_derived]
 		#vis enum #type_enum {
 			#(#variants),*
@@ -320,17 +396,18 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
 		vis,
-		idents: Idents {
-			main_enum,
-			type_enum,
-			type_method,
-			item,
-			query,
-			item_mut,
-			fetch_mut_item,
-			variants,
-			..
-		},
+		idents:
+			Idents {
+				main_enum,
+				type_enum,
+				type_method,
+				item,
+				query,
+				item_mut,
+				fetch_mut_item,
+				variants,
+				..
+			},
 		..
 	} = ctx;
 
@@ -465,17 +542,18 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		idents: Idents {
-			component_struct,
-			state,
-			query,
-			fetch,
-			query_mut,
-			fetch_mut,
-			fetch_mut_item,
-			variants,
-			..
-		},
+		idents:
+			Idents {
+				component_struct,
+				state,
+				query,
+				fetch,
+				query_mut,
+				fetch_mut,
+				fetch_mut_item,
+				variants,
+				..
+			},
 		..
 	} = ctx;
 
@@ -525,16 +603,17 @@ fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		idents: Idents {
-			main_enum,
-			component_struct,
-			state,
-			item,
-			query,
-			fetch,
-			variants,
-			..
-		},
+		idents:
+			Idents {
+				main_enum,
+				component_struct,
+				state,
+				item,
+				query,
+				fetch,
+				variants,
+				..
+			},
 		..
 	} = ctx;
 
@@ -646,19 +725,25 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
 		vis,
-		idents: Idents {
-			main_enum,
-			component_struct,
-			state,
-			query_mut_struct,
-			item_mut,
-			query_mut,
-			fetch_mut,
-			variants,
-			..
-		},
+		attrs: Attrs { mutable, .. },
+		idents:
+			Idents {
+				main_enum,
+				component_struct,
+				state,
+				query_mut_struct,
+				item_mut,
+				query_mut,
+				fetch_mut,
+				variants,
+				..
+			},
 		..
 	} = ctx;
+
+	if !mutable {
+		return quote! {};
+	}
 
 	let struct_def = quote! {
 		#[automatically_derived]
@@ -773,243 +858,68 @@ fn variant_world_queries(ctx: &Context) -> impl ToTokens {
 fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		vis,
 		idents: Idents {
 			component_struct,
-			variant_trait,
-			read_variant,
+			main_enum,
+			variants,
 			..
 		},
 		..
 	} = ctx;
 
-	let struct_def = quote! {
-		#[derive(Debug)]
-		#[automatically_derived]
-		#vis struct #read_variant<T: #variant_trait>(::std::marker::PhantomData<T>);
-	};
+	let wo = variants.len() - 1;
 
-	let world_query_impl = quote! {
-		#[automatically_derived]
-		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::WorldQuery for #read_variant<T>
-		where T: #variant_trait<State = ::#_crate::EnumVariantIndex<N>> {
-			type Item<'a> = &'a T;
-			type Fetch<'a> = <&'a #component_struct<T> as ::#_crate::bevy_ecs::query::WorldQuery>::Fetch<'a>;
-			type ReadOnly = Self;
-			type State = T::State;
+	let enum_component_variant_impls = variants.iter().map(|variant| {
+		let excluded = variants
+			.iter()
+			.filter_map(|other| if variant == other { None } else { Some(*other) })
+			.collect::<Vec<_>>();
+		quote! {
+			impl ::#_crate::EnumComponentVariant for #variant {
+				type Enum = #main_enum;
+				type State = ::#_crate::EnumVariantIndex<#wo>;
 
-			fn shrink<'wlong: 'wshort, 'wshort>(
-				item: ::#_crate::bevy_ecs::query::QueryItem<'wlong, Self>,
-			) -> ::#_crate::bevy_ecs::query::QueryItem<'wshort, Self> {
-				item
-			}
-
-			unsafe fn init_fetch<'w>(
-				world: &'w World,
-				state: &Self::State,
-				last_change_tick: u32,
-				change_tick: u32,
-			) -> Self::Fetch<'w> {
-				<&#component_struct<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
-			}
-
-			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-				<&'w #component_struct<T> as ::#_crate::bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
-			}
-
-			const IS_DENSE: bool = false; // TODO: Make configurable
-			const IS_ARCHETYPAL: bool = true;
-
-			unsafe fn set_archetype<'w>(
-				fetch: &mut Self::Fetch<'w>,
-				state: &Self::State,
-				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
-				tables: &'w ::#_crate::bevy_ecs::storage::Table,
-			) {
-				<&#component_struct<T>>::set_archetype(fetch, &state.with, archetype, tables)
-			}
-
-			unsafe fn set_table<'w>(
-				fetch: &mut Self::Fetch<'w>,
-				state: &Self::State,
-				table: &'w ::#_crate::bevy_ecs::storage::Table,
-			) {
-				<&#component_struct<T>>::set_table(fetch, &state.with, table)
-			}
-
-			unsafe fn fetch<'w>(
-				fetch: &mut Self::Fetch<'w>,
-				entity: Entity,
-				table_row: usize,
-			) -> Self::Item<'w> {
-				&<&#component_struct<T>>::fetch(fetch, entity, table_row).0
-			}
-
-			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
-				state.update_component_access(access)
-			}
-
-			fn update_archetype_component_access(
-				state: &Self::State,
-				archetype: &::#_crate::bevy_ecs::archetype::Archetype,
-				access: &mut ::#_crate::bevy_ecs::query::Access<::#_crate::bevy_ecs::archetype::ArchetypeComponentId>,
-			) {
-				<&#component_struct<T>>::update_archetype_component_access(&state.with, archetype, access)
-			}
-
-			fn init_state(world: &mut World) -> Self::State {
-				T::init_state(world)
-			}
-
-			fn matches_component_set(
-				&state: &Self::State,
-				set_contains_id: &impl Fn(::#_crate::bevy_ecs::component::ComponentId) -> bool,
-			) -> bool {
-				if !set_contains_id(state.with) {
-					return false;
+				fn tag() -> <Self::Enum as EnumComponent>::Tag {
+					<Self::Enum as EnumComponent>::Tag::#variant
 				}
-				for id in state.without {
-					if set_contains_id(id) {
-						return false;
+
+				fn init_state(world: &mut World) -> Self::State {
+					::#_crate::EnumVariantIndex {
+						with: world.init_component::<#component_struct<#variant>>(),
+						without: [
+							#(world.init_component::<#component_struct<#excluded>>(),)*
+						],
 					}
 				}
-				true
 			}
 		}
-	};
-	
-	let safety = format!("SAFETY: All access defers to `&{}`", component_struct);
-	let read_only_impl = quote! {
-		#[automatically_derived]
-		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::ReadOnlyWorldQuery for #read_variant<T>
-		where T: #variant_trait<State = ::#_crate::EnumVariantIndex<N>> {
-			#![doc = #safety]
-		}
-	};
+	});
 
 	quote! {
-		#struct_def
-		#world_query_impl
-		#read_only_impl
+		#(#enum_component_variant_impls)*
 	}
 }
 
 fn variant_world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		vis,
-		idents: Idents {
-			component_struct,
-			variant_trait,
-			read_variant,
-			write_variant,
-			..
-		},
+		attrs: Attrs { mutable, .. },
+		idents: Idents { variants, .. },
 		..
 	} = ctx;
 
-	let struct_def = quote! {
-		#[derive(Debug)]
-		#[automatically_derived]
-		#vis struct #write_variant<T: #variant_trait>(::std::marker::PhantomData<T>);
-	};
+	if !mutable {
+		return quote! {};
+	}
 
-	let world_query_impl = quote! {
-		#[automatically_derived]
-		unsafe impl<T, const N: usize> ::#_crate::bevy_ecs::query::WorldQuery for #write_variant<T>
-		where T: #variant_trait<State = ::#_crate::EnumVariantIndex<N>> {
-			type Item<'a> = ::#_crate::bevy_ecs::world::Mut<'a, T>;
-			type Fetch<'a> = <&'a mut #component_struct<T> as ::#_crate::bevy_ecs::query::WorldQuery>::Fetch<'a>;
-			type ReadOnly = #read_variant<T>;
-			type State = T::State;
-
-			fn shrink<'wlong: 'wshort, 'wshort>(
-				item: ::#_crate::bevy_ecs::query::QueryItem<'wlong, Self>,
-			) -> ::#_crate::bevy_ecs::query::QueryItem<'wshort, Self> {
-				item
-			}
-
-			unsafe fn init_fetch<'w>(
-				world: &'w World,
-				state: &Self::State,
-				last_change_tick: u32,
-				change_tick: u32,
-			) -> Self::Fetch<'w> {
-				<&mut #component_struct<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
-			}
-
-			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-				<&'w mut #component_struct<T> as ::#_crate::bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
-			}
-
-			const IS_DENSE: bool = false; // TODO: Make configurable
-			const IS_ARCHETYPAL: bool = true;
-
-			unsafe fn set_archetype<'w>(
-				fetch: &mut Self::Fetch<'w>,
-				state: &Self::State,
-				archetype: &'w ::#_crate::bevy_ecs::archetype::Archetype,
-				tables: &'w ::#_crate::bevy_ecs::storage::Table,
-			) {
-				<&mut #component_struct<T>>::set_archetype(fetch, &state.with, archetype, tables)
-			}
-
-			unsafe fn set_table<'w>(
-				fetch: &mut Self::Fetch<'w>,
-				state: &Self::State,
-				table: &'w ::#_crate::bevy_ecs::storage::Table,
-			) {
-				<&mut #component_struct<T>>::set_table(fetch, &state.with, table)
-			}
-
-			unsafe fn fetch<'w>(
-				fetch: &mut Self::Fetch<'w>,
-				entity: Entity,
-				table_row: usize,
-			) -> Self::Item<'w> {
-				<&mut #component_struct<T>>::fetch(fetch, entity, table_row).map_unchanged(|it| &mut it.0)
-			}
-
-			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
-				state.update_component_access(access)
-			}
-
-			fn update_archetype_component_access(
-				state: &Self::State,
-				archetype: &::#_crate::bevy_ecs::archetype::Archetype,
-				access: &mut ::#_crate::bevy_ecs::query::Access<::#_crate::bevy_ecs::archetype::ArchetypeComponentId>,
-			) {
-				<&mut #component_struct<T>>::update_archetype_component_access(
-					&state.with,
-					archetype,
-					access,
-				)
-			}
-
-			fn init_state(world: &mut World) -> Self::State {
-				T::init_state(world)
-			}
-
-			fn matches_component_set(
-				state: &Self::State,
-				set_contains_id: &impl Fn(::#_crate::bevy_ecs::component::ComponentId) -> bool,
-			) -> bool {
-				if !set_contains_id(state.with) {
-					return false;
-				}
-				for id in state.without {
-					if set_contains_id(id) {
-						return false;
-					}
-				}
-				true
-			}
+	let enum_component_variant_mut_impls = variants.iter().map(|variant| {
+		quote! {
+			impl ::#_crate::EnumComponentVariantMut for #variant {}
 		}
-	};
+	});
 
 	quote! {
-		#struct_def
-		#world_query_impl
+		#(#enum_component_variant_mut_impls)*
 	}
 }
 
@@ -1068,19 +978,19 @@ fn variant_trait_decl(ctx: &Context) -> impl ToTokens {
 fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 	let Context {
 		_crate,
-		idents: Idents {
-			type_enum,
-			type_method,
-			component_struct,
-			variant_trait,
-			variants,
-			..
-		},
-		data,
+		idents:
+			Idents {
+				type_enum,
+				type_method,
+				component_struct,
+				variant_trait,
+				variants,
+				..
+			},
 		..
 	} = ctx;
 
-	let num_excluded_types = data.variants.len() - 1;
+	let num_excluded_types = variants.len() - 1;
 	let variant_struct_defs = variant_struct_defs(ctx).collect::<Vec<_>>();
 
 	variant_struct_defs
@@ -1088,13 +998,7 @@ fn variant_structs(ctx: &Context) -> Vec<TokenStream2> {
 		.map(|(variant, tokens)| {
 			let excluded = variants
 				.iter()
-				.filter_map(|other| {
-					if variant == other {
-						None
-					} else {
-						Some(*other)
-					}
-				})
+				.filter_map(|other| if variant == other { None } else { Some(*other) })
 				.collect::<Vec<_>>();
 			quote! {
 				#[allow(clippy::derive_partial_eq_without_eq)]

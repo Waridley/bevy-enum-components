@@ -2,6 +2,7 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 use sond_bevy_enum_components::*;
 
+/// Bundles for each Avatar
 const AVATARS: &[(&str, Nation)] = &[
 	("Aang", Nation::Air),
 	("Korra", Nation::Water(WaterTribe::Southern)),
@@ -14,6 +15,7 @@ const AVATARS: &[(&str, Nation)] = &[
 	("Roku", Nation::Fire),
 ];
 
+/// Bundles for each non-Avatar bender
 const BENDERS: &[(&str, Nation)] = &[
 	("Katara", Nation::Water(WaterTribe::Southern)),
 	(
@@ -64,6 +66,7 @@ fn setup(mut cmds: Commands) {
 	}
 }
 
+/// Nation of origin for a bender
 #[derive(Debug, Clone, EnumComponent)]
 pub enum Nation {
 	Air,
@@ -73,12 +76,14 @@ pub enum Nation {
 }
 use nation::*;
 
+/// Which tribe of the Water nation a bender is from
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaterTribe {
 	Northern,
 	Southern,
 }
 
+/// The 4 elements
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumComponent)]
 pub enum Element {
 	Air,
@@ -86,10 +91,10 @@ pub enum Element {
 	Earth,
 	Fire,
 }
-
 use element::*;
 
-trait Attack: ElementVariant<State = EnumVariantIndex<3>> {
+/// How each element is used as an attack
+trait Attack {
 	fn attack_sound() -> &'static str;
 }
 
@@ -139,12 +144,15 @@ impl From<&Nation> for Element {
 	}
 }
 
+/// Whether this bender actually is the Avatar, even if not yet discovered
 #[derive(Default, Component)]
 struct Avatar;
 
+/// Whether this bender has yet been discovered to be the Avatar.
 #[derive(Default, Component)]
 struct DiscoveredAsAvatar(bool);
 
+/// Cycle through elements to bend for each Avatar
 fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element), With<Avatar>>) {
 	use ElementType::*;
 	for (id, element) in &mut q {
@@ -158,7 +166,10 @@ fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element), With<Avat
 	}
 }
 
-fn attack<E: Attack>(mut q: Query<(&Name, Nation, &mut DiscoveredAsAvatar), ReadElement<E>>) {
+/// Make all current benders of element E perform an attack
+fn attack<E: Attack + EnumComponentVariant<Enum = Element, State = EnumVariantIndex<3>>>(
+	mut q: Query<(&Name, Nation, &mut DiscoveredAsAvatar), ERef<E>>,
+) {
 	use nation::NationItem::*;
 	for (Name(name), nation, mut discovered) in &mut q {
 		println!("{name}: {}", E::attack_sound());
@@ -170,21 +181,23 @@ fn attack<E: Attack>(mut q: Query<(&Name, Nation, &mut DiscoveredAsAvatar), Read
 			}
 			Fire(..) => "the Fire Nation".into(),
 		};
-		if !discovered.0 && E::element_type() != NationType::from(&nation) {
+		if !discovered.0 && E::tag() != NationType::from(&nation) {
 			discovered.0 = true;
 			println!("Whoa! Isn't {name} from {origin}?! They must be the Avatar!");
 		}
 	}
 }
 
+/// Set of currently mastered elements for each bender. Only one should be true for non-Avatars.
 #[derive(Debug, Default, Copy, Clone, Component)]
 pub struct MasteredElements {
-	air: bool,
-	water: bool,
-	earth: bool,
-	fire: bool,
+	pub air: bool,
+	pub water: bool,
+	pub earth: bool,
+	pub fire: bool,
 }
 
+/// Check if bender has mastered more than 1 element, revealing them as the Avatar.
 fn check_avatar(
 	mut q: Query<(&Name, Element, &mut MasteredElements)>,
 	mut exit: EventWriter<AppExit>,
