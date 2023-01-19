@@ -1,9 +1,12 @@
 #[doc(hidden)]
 /// Exported for derive macro usage.
 pub use bevy_ecs;
+use std::marker::PhantomData;
 
+use bevy_ecs::component::{Component, ComponentStorage};
 use bevy_ecs::query::{FilteredAccess, ReadOnlyWorldQuery, WorldQuery};
 use bevy_ecs::system::EntityCommands;
+use bevy_ecs::world::Mut;
 use bevy_ecs::{bundle::Bundle, component::ComponentId};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -12,36 +15,25 @@ pub struct EnumVariantIndex<const WO: usize> {
 	pub without: [ComponentId; WO],
 }
 
-impl<const N: usize> EnumVariantIndex<N> {
-	pub fn update_component_access(&self, access: &mut FilteredAccess<ComponentId>) {
-		access.add_read(self.with);
-		for id in self.without {
-			access.add_without(id)
-		}
-	}
-}
-
 pub use macros::EnumComponent;
 pub trait EnumComponent {
-	type Tag: Send + Sync + 'static;
+	type Tag: Copy + Send + Sync + 'static;
 
 	fn tag(&self) -> Self::Tag;
-	fn dispatch_to(self, cmds: &mut EntityCommands);
-	fn remove_from(cmds: &mut EntityCommands);
 }
 
 pub trait EntityEnumCommands {
-	fn set_enum<E: EnumComponent>(&mut self, value: E) -> &mut Self;
-	fn remove_enum<E: EnumComponent>(&mut self) -> &mut Self;
+	fn set_enum<E: EnumComponentVariant>(&mut self, value: E) -> &mut Self;
+	fn remove_enum<E: EnumComponentVariant>(&mut self) -> &mut Self;
 }
 
 impl<'w, 's, 'a> EntityEnumCommands for EntityCommands<'w, 's, 'a> {
-	fn set_enum<E: EnumComponent>(&mut self, value: E) -> &mut Self {
+	fn set_enum<E: EnumComponentVariant>(&mut self, value: E) -> &mut Self {
 		value.dispatch_to(self);
 		self
 	}
 
-	fn remove_enum<E: EnumComponent>(&mut self) -> &mut Self {
+	fn remove_enum<E: EnumComponentVariant>(&mut self) -> &mut Self {
 		E::remove_from(self);
 		self
 	}
@@ -50,25 +42,24 @@ impl<'w, 's, 'a> EntityEnumCommands for EntityCommands<'w, 's, 'a> {
 pub trait EnumComponentVariant: Send + Sync + 'static {
 	type Enum: EnumComponent;
 	type State: Send + Sync + 'static;
+	type Storage: ComponentStorage;
 
 	fn tag() -> <Self::Enum as EnumComponent>::Tag;
-
-	fn bundle(self) -> EnumBundle<Self>
+	fn init_state(world: &mut bevy_ecs::world::World) -> Self::State;
+	fn init_component(world: &mut bevy_ecs::world::World) -> ComponentId
 	where
 		Self: Sized,
 	{
-		EnumBundle {
-			tag: EnumTag(Self::tag()),
-			value: Variant(self),
-		}
+		world.init_component::<Variant<Self>>()
 	}
-
-	fn init_state(world: &mut bevy_ecs::world::World) -> Self::State;
+	fn dispatch_to(self, cmds: &mut EntityCommands);
+	fn remove_from(cmds: &mut EntityCommands);
 }
 
 pub trait EnumComponentVariantMut: EnumComponentVariant {}
 
-pub struct ERef<'w, T: EnumComponentVariant>(&'w T);
+#[derive(Debug)]
+pub struct ERef<'w, T: EnumComponentVariant>(PhantomData<&'w T>);
 
 unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> WorldQuery
 	for ERef<'_, T>
@@ -129,7 +120,10 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		state: &Self::State,
 		access: &mut bevy_ecs::query::FilteredAccess<bevy_ecs::component::ComponentId>,
 	) {
-		state.update_component_access(access)
+		access.add_read(state.with);
+		for id in state.without {
+			access.add_without(id)
+		}
 	}
 
 	fn update_archetype_component_access(
@@ -141,7 +135,7 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 	}
 
 	fn init_state(world: &mut bevy_ecs::world::World) -> Self::State {
-		T::init_state(world)
+		<T as EnumComponentVariant>::init_state(world)
 	}
 
 	fn matches_component_set(
@@ -160,12 +154,14 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 	}
 }
 
+// SAFETY: All access defers to `&Variant`
 unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize>
 	ReadOnlyWorldQuery for ERef<'_, T>
 {
 }
 
-pub struct EMut<'w, T: EnumComponentVariantMut>(&'w mut T);
+#[derive(Debug)]
+pub struct EMut<'w, T: EnumComponentVariantMut>(PhantomData<&'w mut T>);
 
 unsafe impl<'v, T: EnumComponentVariantMut, const WO: usize> bevy_ecs::query::WorldQuery
 	for EMut<'v, T>
@@ -228,7 +224,10 @@ where
 		state: &Self::State,
 		access: &mut bevy_ecs::query::FilteredAccess<bevy_ecs::component::ComponentId>,
 	) {
-		state.update_component_access(access)
+		access.add_write(state.with);
+		for id in state.without {
+			access.add_without(id)
+		}
 	}
 
 	fn update_archetype_component_access(
@@ -240,7 +239,7 @@ where
 	}
 
 	fn init_state(world: &mut bevy_ecs::world::World) -> Self::State {
-		T::init_state(world)
+		<T as EnumComponentVariant>::init_state(world)
 	}
 
 	fn matches_component_set(
@@ -263,19 +262,25 @@ mod private {
 	use super::{EnumComponent, EnumComponentVariant};
 	use bevy_ecs::component::Component;
 
-	#[derive(Component)]
-	pub struct EnumTag<T: EnumComponent>(pub(crate) T::Tag);
-
-	#[derive(Component)]
+	#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 	pub struct Variant<T: EnumComponentVariant>(pub(crate) T);
+
+	impl<T: EnumComponentVariant> Component for Variant<T> {
+		type Storage = <T as EnumComponentVariant>::Storage;
+	}
 }
 
 use private::*;
 
-#[derive(Bundle)]
-pub struct EnumBundle<T: EnumComponentVariant> {
-	tag: EnumTag<T::Enum>,
-	value: Variant<T>,
+#[doc(hidden)]
+pub fn remove_variant<V: EnumComponentVariant>(cmds: &mut EntityCommands) {
+	cmds.remove::<Variant<V>>();
+}
+
+/// SAFETY: All other variants of the enum must already be removed.
+#[doc(hidden)]
+pub unsafe fn insert_variant<V: EnumComponentVariant>(cmds: &mut EntityCommands, value: V) {
+	cmds.insert(Variant(value));
 }
 
 #[cfg(test)]
@@ -297,7 +302,7 @@ pub mod tests {
 	}
 
 	#[derive(Debug, PartialEq, Eq, EnumComponent)]
-	#[component(mutable, derive(PartialEq, Eq))]
+	#[component(mutable, derive(Debug, Clone, PartialEq, Eq))]
 	pub enum Foo {
 		Bar,
 		Baz,
@@ -314,8 +319,7 @@ pub mod tests {
 				Duration::from_secs_f64(0.01),
 				TimerMode::Repeating,
 			)),
-		))
-		.set_enum(Foo::Bar);
+		)).set_enum(Bar);
 	}
 
 	pub fn test_foo_variant(
@@ -351,19 +355,19 @@ pub mod tests {
 			match foo {
 				FooItem::Bar(..) => {
 					if finished {
-						cmds.set_enum(Foo::Baz);
+						cmds.set_enum(Baz);
 					}
 				}
 				FooItem::Baz(..) => {
 					if finished {
-						cmds.set_enum(Foo::Things { stuff: 0 });
+						cmds.set_enum(Things { stuff: 0 });
 					}
 				}
 				FooItem::Things(Things { stuff: 42 }) => {
 					let t = t.elapsed();
 					assert!(t > Duration::from_secs_f32(1.42), "{t:?}");
 					app_exit_events.send(AppExit);
-					cmds.set_enum(Foo::Bar);
+					cmds.set_enum(Bar);
 				}
 				_ => {
 					// wait for incr_things

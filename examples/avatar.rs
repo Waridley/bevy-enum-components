@@ -46,28 +46,49 @@ struct Name(&'static str);
 
 fn setup(mut cmds: Commands) {
 	for (name, nation) in AVATARS {
-		cmds.spawn((
+		let mut cmds = cmds.spawn((
 			Name(*name),
 			MasteredElements::default(),
 			DiscoveredAsAvatar::default(),
 			Avatar::default(),
-		))
-		.set_enum(nation.clone())
-		.set_enum(Element::from(nation));
+		));
+		match nation {
+			Nation::Air => cmds.set_enum(nation::Air),
+			Nation::Water(tribe) => cmds.set_enum(nation::Water(*tribe)),
+			&Nation::Earth { residence } => cmds.set_enum(nation::Earth { residence }),
+			Nation::Fire => cmds.set_enum(nation::Fire),
+		};
+		match Element::from(nation) {
+			Element::Air => cmds.set_enum(element::Air),
+			Element::Water => cmds.set_enum(element::Water),
+			Element::Earth => cmds.set_enum(element::Earth),
+			Element::Fire => cmds.set_enum(element::Fire),
+		};
 	}
 	for (name, nation) in BENDERS {
-		cmds.spawn((
+		let mut cmds = cmds.spawn((
 			Name(*name),
 			MasteredElements::default(),
 			DiscoveredAsAvatar::default(),
-		))
-		.set_enum(nation.clone())
-		.set_enum(Element::from(nation));
+		));
+		match nation {
+			Nation::Air => cmds.set_enum(nation::Air),
+			Nation::Water(tribe) => cmds.set_enum(nation::Water(*tribe)),
+			&Nation::Earth { residence } => cmds.set_enum(nation::Earth { residence }),
+			Nation::Fire => cmds.set_enum(nation::Fire),
+		};
+		match Element::from(nation) {
+			Element::Air => cmds.set_enum(element::Air),
+			Element::Water => cmds.set_enum(element::Water),
+			Element::Earth => cmds.set_enum(element::Earth),
+			Element::Fire => cmds.set_enum(element::Fire),
+		};
 	}
 }
 
 /// Nation of origin for a bender
-#[derive(Debug, Clone, EnumComponent)]
+#[derive(EnumComponent, Debug, Clone)]
+#[component(derive(Debug, Clone, PartialEq))]
 pub enum Nation {
 	Air,
 	Water(WaterTribe),
@@ -84,7 +105,8 @@ pub enum WaterTribe {
 }
 
 /// The 4 elements
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumComponent)]
+#[derive(EnumComponent, Debug, Clone, Copy, PartialEq, Eq)]
+#[component(derive(Debug, Clone, Copy, PartialEq, Eq))]
 pub enum Element {
 	Air,
 	Water,
@@ -156,13 +178,13 @@ struct DiscoveredAsAvatar(bool);
 fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element), With<Avatar>>) {
 	use ElementTag::*;
 	for (id, element) in &mut q {
+		let mut cmds = cmds.entity(id);
 		let next_element = match element.tag() {
-			Air => Element::Water,
-			Water => Element::Earth,
-			Earth => Element::Fire,
-			Fire => Element::Air,
+			Air => cmds.set_enum(element::Water),
+			Water => cmds.set_enum(element::Earth),
+			Earth => cmds.set_enum(element::Fire),
+			Fire => cmds.set_enum(element::Air),
 		};
-		cmds.entity(id).set_enum(next_element);
 	}
 }
 
