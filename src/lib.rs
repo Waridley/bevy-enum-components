@@ -3,11 +3,10 @@
 pub use bevy_ecs;
 use std::marker::PhantomData;
 
-use bevy_ecs::component::{Component, ComponentStorage};
-use bevy_ecs::query::{FilteredAccess, ReadOnlyWorldQuery, WorldQuery};
+use bevy_ecs::component::ComponentId;
+use bevy_ecs::component::ComponentStorage;
+use bevy_ecs::query::{ReadOnlyWorldQuery, WorldQuery};
 use bevy_ecs::system::EntityCommands;
-use bevy_ecs::world::Mut;
-use bevy_ecs::{bundle::Bundle, component::ComponentId};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct EnumVariantIndex<const WO: usize> {
@@ -259,7 +258,7 @@ where
 }
 
 mod private {
-	use super::{EnumComponent, EnumComponentVariant};
+	use super::EnumComponentVariant;
 	use bevy_ecs::component::Component;
 
 	#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -319,7 +318,8 @@ pub mod tests {
 				Duration::from_secs_f64(0.01),
 				TimerMode::Repeating,
 			)),
-		)).set_enum(Bar);
+		))
+		.set_enum(Bar);
 	}
 
 	pub fn test_foo_variant(
