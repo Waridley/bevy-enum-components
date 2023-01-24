@@ -4,8 +4,8 @@ use proc_macro_crate::FoundCrate;
 use quote::{format_ident, quote, ToTokens};
 use std::collections::HashMap;
 use syn::{
-	parse_macro_input, Attribute, Data, DataEnum, DeriveInput, Expr, Fields, Generics, Ident, Meta,
-	NestedMeta, Path, Variant, Visibility,
+	parse_macro_input, Attribute, Data, DataEnum, DeriveInput, Expr, Fields, Generics, Ident, Lit,
+	Meta, NestedMeta, Path, Variant, Visibility,
 };
 
 type TokenStream2 = proc_macro2::TokenStream;
@@ -70,6 +70,7 @@ pub(crate) struct Attrs {
 	pub component_attrs: Vec<NestedMeta>,
 	pub derives: Vec<Path>,
 	pub mutable: bool,
+	pub storage: Option<Lit>,
 	pub input: Vec<Attribute>,
 }
 
@@ -88,11 +89,20 @@ impl Attrs {
 				_ => None,
 			})
 			.is_some();
+		let storage = component_attrs.iter().find_map(|attr| match attr {
+			NestedMeta::Meta(Meta::NameValue(meta)) => meta
+				.path
+				.segments
+				.last()
+				.and_then(|seg| (seg.ident == "storage").then_some(meta.lit.clone())),
+			_ => None,
+		});
 
 		Attrs {
 			component_attrs,
 			derives,
 			mutable,
+			storage,
 			input: attrs,
 		}
 	}
@@ -586,16 +596,15 @@ fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
-		idents:
-			Idents {
-				main_enum,
-				state,
-				item,
-				query,
-				fetch,
-				variants,
-				..
-			},
+		idents: Idents {
+			main_enum,
+			state,
+			item,
+			query,
+			fetch,
+			variants,
+			..
+		},
 		..
 	} = ctx;
 
@@ -837,6 +846,7 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 			variants,
 			..
 		},
+		attrs: Attrs { storage, .. },
 		..
 	} = ctx;
 
@@ -847,11 +857,25 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 			.iter()
 			.filter_map(|other| if variant == other { None } else { Some(*other) })
 			.collect::<Vec<_>>();
+
+		// TODO: Check variant attrs first, then common attrs
+		let storage = storage
+			.as_ref()
+			.map(|lit| match lit {
+				Lit::Str(s) => match &*s.value() {
+					"SparseSet" => quote! { ::#_crate::bevy_ecs::component::SparseStorage },
+					"Table" => quote! { ::#_crate::bevy_ecs::component::TableStorage },
+					s => panic!("Unknown storage type: {s}"),
+				},
+				other => panic!("Unexpected literal: {other:?}"),
+			})
+			.unwrap_or_else(|| quote! { ::#_crate::bevy_ecs::component::TableStorage });
+
 		quote! {
 			impl ::#_crate::EnumComponentVariant for #variant {
 				type Enum = #main_enum;
 				type State = ::#_crate::EnumVariantIndex<#wo>;
-				type Storage = ::#_crate::bevy_ecs::component::SparseStorage; // TODO: make configurable
+				type Storage = #storage;
 
 				fn tag() -> <Self::Enum as EnumComponent>::Tag {
 					<Self::Enum as EnumComponent>::Tag::#variant
