@@ -629,10 +629,10 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 			}
 
 			unsafe fn init_fetch<'w>(
-				world: &'w World,
+				world: ::#_crate::bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell<'w>,
 				state: &Self::State,
-				last_change_tick: u32,
-				change_tick: u32,
+				last_change_tick: ::#_crate::bevy_ecs::component::Tick,
+				change_tick: ::#_crate::bevy_ecs::component::Tick,
 			) -> Self::Fetch<'w> {
 				#query::init_fetch(world, state, last_change_tick, change_tick)
 			}
@@ -664,7 +664,7 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 			unsafe fn fetch<'w>(
 				fetch: &mut Self::Fetch<'w>,
 				entity: Entity,
-				table_row: usize,
+				table_row: ::#_crate::bevy_ecs::storage::TableRow,
 			) -> Self::Item<'w> {
 				#query::fetch(fetch, entity, table_row).into()
 			}
@@ -757,10 +757,10 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 			}
 
 			unsafe fn init_fetch<'w>(
-				world: &'w World,
+				world: ::#_crate::bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell<'w>,
 				state: &Self::State,
-				last_change_tick: u32,
-				change_tick: u32,
+				last_change_tick: ::#_crate::bevy_ecs::component::Tick,
+				change_tick: ::#_crate::bevy_ecs::component::Tick,
 			) -> Self::Fetch<'w> {
 				#query_mut::init_fetch(world, state, last_change_tick, change_tick)
 			}
@@ -792,7 +792,7 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 			unsafe fn fetch<'w>(
 				fetch: &mut Self::Fetch<'w>,
 				entity: Entity,
-				table_row: usize,
+				table_row: ::#_crate::bevy_ecs::storage::TableRow,
 			) -> Self::Item<'w> {
 				#query_mut::fetch(fetch, entity, table_row).into()
 			}

@@ -3,10 +3,12 @@
 pub use bevy_ecs;
 use std::marker::PhantomData;
 
-use bevy_ecs::component::ComponentId;
+use bevy_ecs::component::{ComponentId, Tick};
 use bevy_ecs::component::ComponentStorage;
 use bevy_ecs::query::{ReadOnlyWorldQuery, WorldQuery};
+use bevy_ecs::storage::TableRow;
 use bevy_ecs::system::EntityCommands;
+use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct EnumVariantIndex<const WO: usize> {
@@ -75,10 +77,10 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 	}
 
 	unsafe fn init_fetch<'w>(
-		world: &'w bevy_ecs::world::World,
+		world: UnsafeWorldCell<'w>,
 		state: &Self::State,
-		last_change_tick: u32,
-		change_tick: u32,
+		last_change_tick: Tick,
+		change_tick: Tick,
 	) -> Self::Fetch<'w> {
 		<&Variant<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 	}
@@ -110,7 +112,7 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 	unsafe fn fetch<'w>(
 		fetch: &mut Self::Fetch<'w>,
 		entity: bevy_ecs::entity::Entity,
-		table_row: usize,
+		table_row: TableRow,
 	) -> Self::Item<'w> {
 		&<&Variant<T>>::fetch(fetch, entity, table_row).0
 	}
@@ -121,7 +123,7 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 	) {
 		access.add_read(state.with);
 		for id in state.without {
-			access.add_without(id)
+			access.and_without(id)
 		}
 	}
 
@@ -179,10 +181,10 @@ where
 	}
 
 	unsafe fn init_fetch<'w>(
-		world: &'w bevy_ecs::world::World,
+		world: UnsafeWorldCell<'w>,
 		state: &Self::State,
-		last_change_tick: u32,
-		change_tick: u32,
+		last_change_tick: Tick,
+		change_tick: Tick,
 	) -> Self::Fetch<'w> {
 		<&mut Variant<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 	}
@@ -214,7 +216,7 @@ where
 	unsafe fn fetch<'w>(
 		fetch: &mut Self::Fetch<'w>,
 		entity: bevy_ecs::entity::Entity,
-		table_row: usize,
+		table_row: TableRow,
 	) -> Self::Item<'w> {
 		<&mut Variant<T>>::fetch(fetch, entity, table_row).map_unchanged(|it| &mut it.0)
 	}
@@ -225,7 +227,7 @@ where
 	) {
 		access.add_write(state.with);
 		for id in state.without {
-			access.add_without(id)
+			access.and_without(id)
 		}
 	}
 
