@@ -205,7 +205,7 @@ fn attr_list<'a>(
 			.is_some()
 		{
 			match attr.parse_meta().unwrap() {
-				Meta::List(list) => acc.extend(list.nested.into_iter()),
+				Meta::List(list) => acc.extend(list.nested),
 				other => panic!("unexpected component attribute {other:?}"),
 			}
 		};

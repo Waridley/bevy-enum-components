@@ -3,8 +3,8 @@
 pub use bevy_ecs;
 use std::marker::PhantomData;
 
-use bevy_ecs::component::{ComponentId, Tick};
 use bevy_ecs::component::ComponentStorage;
+use bevy_ecs::component::{ComponentId, Tick};
 use bevy_ecs::query::{ReadOnlyWorldQuery, WorldQuery};
 use bevy_ecs::storage::TableRow;
 use bevy_ecs::system::EntityCommands;
