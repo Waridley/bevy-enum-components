@@ -85,10 +85,6 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		<&Variant<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 	}
 
-	unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-		<&'w Variant<T> as bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
-	}
-
 	const IS_DENSE: bool = false; // TODO: Make configurable
 	const IS_ARCHETYPAL: bool = true;
 
@@ -187,10 +183,6 @@ where
 		change_tick: Tick,
 	) -> Self::Fetch<'w> {
 		<&mut Variant<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
-	}
-
-	unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-		<&'w mut Variant<T> as bevy_ecs::query::WorldQuery>::clone_fetch(fetch)
 	}
 
 	const IS_DENSE: bool = false; // TODO: Make configurable

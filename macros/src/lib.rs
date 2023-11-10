@@ -637,10 +637,6 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				#query::init_fetch(world, state, last_change_tick, change_tick)
 			}
 
-			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-				#query::clone_fetch(fetch)
-			}
-
 			const IS_DENSE: bool = <#query as ::#_crate::bevy_ecs::query::WorldQuery>::IS_DENSE;
 			const IS_ARCHETYPAL: bool = <#query as ::#_crate::bevy_ecs::query::WorldQuery>::IS_ARCHETYPAL;
 
@@ -763,10 +759,6 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				change_tick: ::#_crate::bevy_ecs::component::Tick,
 			) -> Self::Fetch<'w> {
 				#query_mut::init_fetch(world, state, last_change_tick, change_tick)
-			}
-
-			unsafe fn clone_fetch<'w>(fetch: &Self::Fetch<'w>) -> Self::Fetch<'w> {
-				#query_mut::clone_fetch(fetch)
 			}
 
 			const IS_DENSE: bool = <#query_mut as ::#_crate::bevy_ecs::query::WorldQuery>::IS_DENSE;
