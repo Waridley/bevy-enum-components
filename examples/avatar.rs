@@ -31,13 +31,15 @@ fn main() {
 	use element::*;
 	App::new()
 		.add_plugins(MinimalPlugins)
-		.add_startup_system(setup)
-		.add_system(switch_elements)
-		.add_system(attack::<Air>)
-		.add_system(attack::<Water>)
-		.add_system(attack::<Earth>)
-		.add_system(attack::<Fire>)
-		.add_system(check_avatar)
+		.add_systems(Startup, setup)
+		.add_systems(Update, (
+			switch_elements,
+			attack::<Air>,
+			attack::<Water>,
+			attack::<Earth>,
+			attack::<Fire>,
+			check_avatar,
+		))
 		.run()
 }
 
@@ -179,7 +181,7 @@ fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element), With<Avat
 	use ElementTag::*;
 	for (id, element) in &mut q {
 		let mut cmds = cmds.entity(id);
-		let next_element = match element.tag() {
+		let _next_element = match element.tag() {
 			Air => cmds.set_enum(element::Water),
 			Water => cmds.set_enum(element::Earth),
 			Earth => cmds.set_enum(element::Fire),

@@ -278,7 +278,7 @@ pub unsafe fn insert_variant<V: EnumComponentVariant>(cmds: &mut EntityCommands,
 
 #[cfg(test)]
 pub mod tests {
-	use bevy::app::{App, AppExit};
+	use bevy::app::AppExit;
 	use bevy::prelude::*;
 	use sond_bevy_enum_components::*;
 	use std::time::Duration;
@@ -287,10 +287,12 @@ pub mod tests {
 	fn enum_component() {
 		App::new()
 			.add_plugins(MinimalPlugins)
-			.add_startup_system(insert_foo_variant)
-			.add_system(test_foo_variant)
-			.add_system(change_foo)
-			.add_system(incr_things::<1>)
+			.add_systems(Startup, insert_foo_variant)
+			.add_systems(Update, (
+				test_foo_variant,
+				change_foo,
+				incr_things::<1>,
+			))
 			.run()
 	}
 
