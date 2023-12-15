@@ -288,11 +288,7 @@ pub mod tests {
 		App::new()
 			.add_plugins(MinimalPlugins)
 			.add_systems(Startup, insert_foo_variant)
-			.add_systems(Update, (
-				test_foo_variant,
-				change_foo,
-				incr_things::<1>,
-			))
+			.add_systems(Update, (test_foo_variant, change_foo, incr_things::<1>))
 			.run()
 	}
 

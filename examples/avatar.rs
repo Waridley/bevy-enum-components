@@ -32,14 +32,17 @@ fn main() {
 	App::new()
 		.add_plugins(MinimalPlugins)
 		.add_systems(Startup, setup)
-		.add_systems(Update, (
-			switch_elements,
-			attack::<Air>,
-			attack::<Water>,
-			attack::<Earth>,
-			attack::<Fire>,
-			check_avatar,
-		))
+		.add_systems(
+			Update,
+			(
+				switch_elements,
+				attack::<Air>,
+				attack::<Water>,
+				attack::<Earth>,
+				attack::<Fire>,
+				check_avatar,
+			),
+		)
 		.run()
 }
 
