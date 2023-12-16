@@ -1,5 +1,4 @@
-use bevy::app::AppExit;
-use bevy::prelude::*;
+use bevy::{app::AppExit, prelude::*};
 use sond_bevy_enum_components::*;
 
 /// Bundles for each Avatar

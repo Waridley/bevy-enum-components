@@ -3,12 +3,13 @@
 pub use bevy_ecs;
 use std::marker::PhantomData;
 
-use bevy_ecs::component::ComponentStorage;
-use bevy_ecs::component::{ComponentId, Tick};
-use bevy_ecs::query::{ReadOnlyWorldQuery, WorldQuery};
-use bevy_ecs::storage::TableRow;
-use bevy_ecs::system::EntityCommands;
-use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
+use bevy_ecs::{
+	component::{ComponentId, ComponentStorage, Tick},
+	query::{ReadOnlyWorldQuery, WorldQuery},
+	storage::TableRow,
+	system::EntityCommands,
+	world::unsafe_world_cell::UnsafeWorldCell,
+};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct EnumVariantIndex<const WO: usize> {
@@ -278,8 +279,7 @@ pub unsafe fn insert_variant<V: EnumComponentVariant>(cmds: &mut EntityCommands,
 
 #[cfg(test)]
 pub mod tests {
-	use bevy::app::AppExit;
-	use bevy::prelude::*;
+	use bevy::{app::AppExit, prelude::*};
 	use sond_bevy_enum_components::*;
 	use std::time::Duration;
 
