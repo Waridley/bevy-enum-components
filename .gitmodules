@@ -1,0 +1,3 @@
+[submodule "proc-macro-crate"]
+	path = proc-macro-crate
+	url = git@github.com:bkchr/proc-macro-crate.git

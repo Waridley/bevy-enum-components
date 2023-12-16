@@ -11,4 +11,4 @@ proc-macro2 = "1.0.47"
 syn = { version = "1.0", features = ["extra-traits"] }
 quote = "1.0"
 convert_case = "0.6.0"
-proc-macro-crate = "1.2.1"
+proc-macro-crate = { version = "2", path = "../proc-macro-crate" }
