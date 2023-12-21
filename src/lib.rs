@@ -26,7 +26,10 @@ pub trait EnumComponent {
 
 pub trait EntityEnumCommands {
 	fn set_enum<E: EnumComponentVariant>(&mut self, value: E) -> &mut Self;
-	fn with_enum<E: EnumComponentVariant>(mut self, value: E) -> Self where Self: Sized {
+	fn with_enum<E: EnumComponentVariant>(mut self, value: E) -> Self
+	where
+		Self: Sized,
+	{
 		self.set_enum(value);
 		self
 	}
