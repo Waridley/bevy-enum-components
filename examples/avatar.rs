@@ -1,5 +1,8 @@
-use bevy::{app::AppExit, prelude::*};
+use element::*;
+use nation::*;
 use sond_bevy_enum_components::*;
+
+use bevy::{app::AppExit, prelude::*};
 
 /// Bundles for each Avatar
 const AVATARS: &[(&str, Nation)] = &[
@@ -99,7 +102,6 @@ pub enum Nation {
 	Earth { residence: &'static str },
 	Fire,
 }
-use nation::*;
 
 /// Which tribe of the Water nation a bender is from
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,7 +119,6 @@ pub enum Element {
 	Earth,
 	Fire,
 }
-use element::*;
 
 /// How each element is used as an attack
 trait Attack {
@@ -194,7 +195,7 @@ fn switch_elements(mut cmds: Commands, mut q: Query<(Entity, Element), With<Avat
 
 /// Make all current benders of element E perform an attack
 fn attack<E: Attack + EnumComponentVariant<Enum = Element, State = EnumVariantIndex<3>>>(
-	mut q: Query<(&Name, Nation, &mut DiscoveredAsAvatar), ERef<E>>,
+	mut q: Query<(&Name, Nation, &mut DiscoveredAsAvatar), WithVariant<E>>,
 ) {
 	use nation::NationItem::*;
 	for (Name(name), nation, mut discovered) in &mut q {
@@ -244,7 +245,7 @@ fn check_avatar(
 		}
 		if *air && *water && *earth && *fire {
 			println!("Congratulations! {name} mastered all 4 elements!");
-			exit.send(AppExit)
+			exit.send(AppExit);
 		}
 	}
 }
