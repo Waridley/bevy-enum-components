@@ -4,8 +4,10 @@ pub use bevy_ecs;
 use std::marker::PhantomData;
 
 use bevy_ecs::{
-	component::{ComponentId, ComponentStorage, Tick},
-	query::{ReadOnlyWorldQuery, WorldQuery},
+	component::{ComponentId, ComponentStorage, StorageType, Tick},
+	entity::Entity,
+	prelude::World,
+	query::{QueryData, QueryFilter, ReadOnlyQueryData, Without, WorldQuery},
 	storage::TableRow,
 	system::EntityCommands,
 	world::unsafe_world_cell::UnsafeWorldCell,
@@ -15,6 +17,20 @@ use bevy_ecs::{
 pub struct EnumVariantIndex<const WO: usize> {
 	pub with: ComponentId,
 	pub without: [ComponentId; WO],
+}
+
+impl<const WO: usize> EnumVariantIndex<WO> {
+	fn matches_component_set(&self, set_contains_id: &impl Fn(ComponentId) -> bool) -> bool {
+		if !set_contains_id(self.with) {
+			return false;
+		}
+		for id in self.without {
+			if set_contains_id(id) {
+				return false;
+			}
+		}
+		true
+	}
 }
 
 pub use macros::EnumComponent;
@@ -36,7 +52,7 @@ pub trait EntityEnumCommands {
 	fn remove_enum<E: EnumComponentVariant>(&mut self) -> &mut Self;
 }
 
-impl<'w, 's, 'a> EntityEnumCommands for EntityCommands<'w, 's, 'a> {
+impl<'a> EntityEnumCommands for EntityCommands<'a> {
 	fn set_enum<E: EnumComponentVariant>(&mut self, value: E) -> &mut Self {
 		value.dispatch_to(self);
 		self
@@ -55,11 +71,18 @@ pub trait EnumComponentVariant: Send + Sync + 'static {
 
 	fn tag() -> <Self::Enum as EnumComponent>::Tag;
 	fn init_state(world: &mut bevy_ecs::world::World) -> Self::State;
+	fn get_state(world: &bevy_ecs::world::World) -> Option<Self::State>;
 	fn init_component(world: &mut bevy_ecs::world::World) -> ComponentId
 	where
 		Self: Sized,
 	{
 		world.init_component::<Variant<Self>>()
+	}
+	fn get_component(world: &bevy_ecs::world::World) -> Option<ComponentId>
+	where
+		Self: Sized,
+	{
+		world.component_id::<Variant<Self>>()
 	}
 	fn dispatch_to(self, cmds: &mut EntityCommands);
 	fn remove_from(cmds: &mut EntityCommands);
@@ -70,12 +93,17 @@ pub trait EnumComponentVariantMut: EnumComponentVariant {}
 #[derive(Debug)]
 pub struct ERef<'w, T: EnumComponentVariant>(PhantomData<&'w T>);
 
+unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> QueryData
+	for ERef<'_, T>
+{
+	type ReadOnly = Self;
+}
+
 unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> WorldQuery
 	for ERef<'_, T>
 {
 	type Item<'a> = &'a T;
 	type Fetch<'a> = <&'a Variant<T> as WorldQuery>::Fetch<'a>;
-	type ReadOnly = Self;
 	type State = T::State;
 
 	fn shrink<'wlong: 'wshort, 'wshort>(
@@ -93,8 +121,10 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		<&Variant<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 	}
 
-	const IS_DENSE: bool = false; // TODO: Make configurable
-	const IS_ARCHETYPAL: bool = true;
+	const IS_DENSE: bool = match T::Storage::STORAGE_TYPE {
+		StorageType::Table => true,
+		StorageType::SparseSet => false,
+	};
 
 	unsafe fn set_archetype<'w>(
 		fetch: &mut Self::Fetch<'w>,
@@ -131,51 +161,43 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		}
 	}
 
-	fn update_archetype_component_access(
-		state: &Self::State,
-		archetype: &bevy_ecs::archetype::Archetype,
-		access: &mut bevy_ecs::query::Access<bevy_ecs::archetype::ArchetypeComponentId>,
-	) {
-		<&Variant<T>>::update_archetype_component_access(&state.with, archetype, access)
-	}
-
 	fn init_state(world: &mut bevy_ecs::world::World) -> Self::State {
 		<T as EnumComponentVariant>::init_state(world)
+	}
+
+	fn get_state(world: &World) -> Option<Self::State> {
+		<T as EnumComponentVariant>::get_state(world)
 	}
 
 	fn matches_component_set(
 		&state: &Self::State,
 		set_contains_id: &impl Fn(bevy_ecs::component::ComponentId) -> bool,
 	) -> bool {
-		if !set_contains_id(state.with) {
-			return false;
-		}
-		for id in state.without {
-			if set_contains_id(id) {
-				return false;
-			}
-		}
-		true
+		state.matches_component_set(set_contains_id)
 	}
 }
 
 // SAFETY: All access defers to `&Variant`
 unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize>
-	ReadOnlyWorldQuery for ERef<'_, T>
+	ReadOnlyQueryData for ERef<'_, T>
 {
 }
 
 #[derive(Debug)]
 pub struct EMut<'w, T: EnumComponentVariantMut>(PhantomData<&'w mut T>);
 
-unsafe impl<'v, T: EnumComponentVariantMut, const WO: usize> bevy_ecs::query::WorldQuery
+unsafe impl<'v, T: EnumComponentVariantMut<State = EnumVariantIndex<WO>>, const WO: usize> QueryData
 	for EMut<'v, T>
+{
+	type ReadOnly = ERef<'v, T>;
+}
+
+unsafe impl<'v, T: EnumComponentVariantMut, const WO: usize> WorldQuery for EMut<'v, T>
 where
 	T: EnumComponentVariant<State = EnumVariantIndex<WO>>,
 {
 	type Item<'a> = bevy_ecs::world::Mut<'a, T>;
 	type Fetch<'a> = <&'a mut Variant<T> as bevy_ecs::query::WorldQuery>::Fetch<'a>;
-	type ReadOnly = ERef<'v, T>;
 	type State = T::State;
 
 	fn shrink<'wlong: 'wshort, 'wshort>(
@@ -193,8 +215,10 @@ where
 		<&mut Variant<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 	}
 
-	const IS_DENSE: bool = false; // TODO: Make configurable
-	const IS_ARCHETYPAL: bool = true;
+	const IS_DENSE: bool = match T::Storage::STORAGE_TYPE {
+		StorageType::Table => true,
+		StorageType::SparseSet => false,
+	};
 
 	unsafe fn set_archetype<'w>(
 		fetch: &mut Self::Fetch<'w>,
@@ -231,33 +255,113 @@ where
 		}
 	}
 
-	fn update_archetype_component_access(
-		state: &Self::State,
-		archetype: &bevy_ecs::archetype::Archetype,
-		access: &mut bevy_ecs::query::Access<bevy_ecs::archetype::ArchetypeComponentId>,
-	) {
-		<&mut Variant<T>>::update_archetype_component_access(&state.with, archetype, access)
-	}
-
 	fn init_state(world: &mut bevy_ecs::world::World) -> Self::State {
 		<T as EnumComponentVariant>::init_state(world)
+	}
+
+	fn get_state(world: &bevy_ecs::world::World) -> Option<Self::State> {
+		<T as EnumComponentVariant>::get_state(world)
 	}
 
 	fn matches_component_set(
 		state: &Self::State,
 		set_contains_id: &impl Fn(bevy_ecs::component::ComponentId) -> bool,
 	) -> bool {
-		if !set_contains_id(state.with) {
-			return false;
-		}
-		for id in state.without {
-			if set_contains_id(id) {
-				return false;
-			}
-		}
+		state.matches_component_set(set_contains_id)
+	}
+}
+
+pub struct WithVariant<T: EnumComponentVariant>(PhantomData<T>);
+
+impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> QueryFilter
+	for WithVariant<T>
+{
+	const IS_ARCHETYPAL: bool = true;
+
+	unsafe fn filter_fetch(
+		_fetch: &mut Self::Fetch<'_>,
+		_entity: Entity,
+		_table_row: TableRow,
+	) -> bool {
 		true
 	}
 }
+
+unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> WorldQuery
+	for WithVariant<T>
+{
+	type Item<'a> = ();
+	type Fetch<'a> = ();
+	type State = T::State;
+
+	fn shrink<'wlong: 'wshort, 'wshort>(
+		_item: bevy_ecs::query::QueryItem<'wlong, Self>,
+	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
+	}
+
+	#[inline]
+	unsafe fn init_fetch<'w>(
+		_world: UnsafeWorldCell<'w>,
+		_state: &Self::State,
+		_last_change_tick: Tick,
+		_change_tick: Tick,
+	) -> Self::Fetch<'w> {
+	}
+
+	const IS_DENSE: bool = match T::Storage::STORAGE_TYPE {
+		StorageType::Table => true,
+		StorageType::SparseSet => false,
+	};
+
+	unsafe fn set_archetype<'w>(
+		_fetch: &mut Self::Fetch<'w>,
+		_state: &Self::State,
+		_archetype: &'w bevy_ecs::archetype::Archetype,
+		_tables: &'w bevy_ecs::storage::Table,
+	) {
+	}
+
+	unsafe fn set_table<'w>(
+		_fetch: &mut Self::Fetch<'w>,
+		_state: &Self::State,
+		_table: &'w bevy_ecs::storage::Table,
+	) {
+	}
+
+	unsafe fn fetch<'w>(
+		_fetch: &mut Self::Fetch<'w>,
+		_entity: bevy_ecs::entity::Entity,
+		_table_row: TableRow,
+	) -> Self::Item<'w> {
+	}
+
+	fn update_component_access(
+		state: &Self::State,
+		access: &mut bevy_ecs::query::FilteredAccess<bevy_ecs::component::ComponentId>,
+	) {
+		access.add_read(state.with);
+		for id in state.without {
+			access.and_without(id)
+		}
+	}
+
+	fn init_state(world: &mut bevy_ecs::world::World) -> Self::State {
+		<T as EnumComponentVariant>::init_state(world)
+	}
+
+	fn get_state(world: &World) -> Option<Self::State> {
+		<T as EnumComponentVariant>::get_state(world)
+	}
+
+	fn matches_component_set(
+		&state: &Self::State,
+		set_contains_id: &impl Fn(bevy_ecs::component::ComponentId) -> bool,
+	) -> bool {
+		state.matches_component_set(set_contains_id)
+	}
+}
+
+pub type WithoutVariant<T> = Without<Variant<T>>;
 
 mod private {
 	use super::EnumComponentVariant;
