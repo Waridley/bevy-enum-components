@@ -531,6 +531,7 @@ fn world_query_item_mut_decls(ctx: &Context) -> impl ToTokens {
 fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 	let Context {
 		_crate,
+		vis,
 		idents:
 			Idents {
 				state,
@@ -590,12 +591,12 @@ fn world_query_type_aliases(ctx: &Context) -> impl ToTokens {
 
 	let filter_aliases = quote! {
 		#[automatically_derived]
-		pub type #with = ::#_crate::bevy_ecs::query::Or<(
+		#vis type #with = ::#_crate::bevy_ecs::query::Or<(
 			#(::#_crate::WithVariant<#variants>),*
 		)>;
 
 		#[automatically_derived]
-		pub type #without = (
+		#vis type #without = (
 			#(::#_crate::WithoutVariant<#variants>),*
 		);
 	};
