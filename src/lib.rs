@@ -3,6 +3,7 @@
 pub use bevy_ecs;
 use std::marker::PhantomData;
 
+use bevy_ecs::world::EntityWorldMut;
 use bevy_ecs::{
 	component::{ComponentId, ComponentStorage, StorageType, Tick},
 	entity::Entity,
@@ -49,7 +50,7 @@ pub trait EntityEnumCommands {
 		self.set_enum(value);
 		self
 	}
-	fn remove_enum<E: EnumComponentVariant>(&mut self) -> &mut Self;
+	fn remove_variant<E: EnumComponentVariant>(&mut self) -> &mut Self;
 }
 
 impl<'a> EntityEnumCommands for EntityCommands<'a> {
@@ -58,8 +59,32 @@ impl<'a> EntityEnumCommands for EntityCommands<'a> {
 		self
 	}
 
-	fn remove_enum<E: EnumComponentVariant>(&mut self) -> &mut Self {
+	fn remove_variant<E: EnumComponentVariant>(&mut self) -> &mut Self {
 		E::remove_from(self);
+		self
+	}
+}
+
+pub trait EntityWorldEnumMut {
+	fn set_enum<E: EnumComponentVariant>(&mut self, value: E) -> &mut Self;
+	fn with_enum<E: EnumComponentVariant>(mut self, value: E) -> Self
+	where
+		Self: Sized,
+	{
+		self.set_enum(value);
+		self
+	}
+	fn remove_variant<E: EnumComponentVariant>(&mut self) -> &mut Self;
+}
+
+impl EntityWorldEnumMut for EntityWorldMut<'_> {
+	fn set_enum<E: EnumComponentVariant>(&mut self, value: E) -> &mut Self {
+		value.dispatch_to_world(self);
+		self
+	}
+
+	fn remove_variant<E: EnumComponentVariant>(&mut self) -> &mut Self {
+		E::remove_from_world(self);
 		self
 	}
 }
@@ -84,8 +109,17 @@ pub trait EnumComponentVariant: Send + Sync + 'static {
 	{
 		world.component_id::<Variant<Self>>()
 	}
-	fn dispatch_to(self, cmds: &mut EntityCommands);
-	fn remove_from(cmds: &mut EntityCommands);
+	fn dispatch_to(self, cmds: &mut EntityCommands)
+	where
+		Self: Sized,
+	{
+		cmds.add(|id, world: &mut World| self.dispatch_to_world(&mut world.entity_mut(id)));
+	}
+	fn remove_from(cmds: &mut EntityCommands) {
+		cmds.add(|id, world: &mut World| Self::remove_from_world(&mut world.entity_mut(id)));
+	}
+	fn dispatch_to_world(self, world: &mut EntityWorldMut);
+	fn remove_from_world(world: &mut EntityWorldMut);
 }
 
 pub trait EnumComponentVariantMut: EnumComponentVariant {}
@@ -382,10 +416,21 @@ pub fn remove_variant<V: EnumComponentVariant>(cmds: &mut EntityCommands) {
 	cmds.remove::<Variant<V>>();
 }
 
+#[doc(hidden)]
+pub fn world_remove_variant<V: EnumComponentVariant>(world: &mut EntityWorldMut) {
+	world.remove::<Variant<V>>();
+}
+
 /// SAFETY: All other variants of the enum must already be removed.
 #[doc(hidden)]
 pub unsafe fn insert_variant<V: EnumComponentVariant>(cmds: &mut EntityCommands, value: V) {
 	cmds.insert(Variant(value));
+}
+
+/// SAFETY: All other variants of the enum must already be removed.
+#[doc(hidden)]
+pub unsafe fn world_insert_variant<V: EnumComponentVariant>(world: &mut EntityWorldMut, value: V) {
+	world.insert(Variant(value));
 }
 
 #[cfg(test)]

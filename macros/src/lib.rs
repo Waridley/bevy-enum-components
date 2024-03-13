@@ -905,14 +905,14 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 					})
 				}
 
-				fn dispatch_to(self, cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
-					#(::#_crate::remove_variant::<#excluded>(cmds);)*
+				fn dispatch_to_world(self, cmds: &mut ::#_crate::bevy_ecs::world::EntityWorldMut) {
+					#(::#_crate::world_remove_variant::<#excluded>(cmds);)*
 					// SAFETY: Already ensured removal of all other variants.
-					unsafe { ::#_crate::insert_variant(cmds, self) };
+					unsafe { ::#_crate::world_insert_variant(cmds, self) };
 				}
 
-				fn remove_from(cmds: &mut ::#_crate::bevy_ecs::system::EntityCommands) {
-					#(::#_crate::remove_variant::<#variants>(cmds);)*
+				fn remove_from_world(cmds: &mut ::#_crate::bevy_ecs::world::EntityWorldMut) {
+					#(::#_crate::world_remove_variant::<#variants>(cmds);)*
 				}
 			}
 		}
