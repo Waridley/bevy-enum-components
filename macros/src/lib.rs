@@ -465,7 +465,6 @@ fn world_query_item_mut_decls(ctx: &Context) -> impl ToTokens {
 	let len = variants.len();
 
 	let item_mut_decl = quote! {
-		#[derive(Debug)]
 		#vis enum #item_mut<'w> {
 			#(#variants(::#_crate::bevy_ecs::world::Mut<'w, #variants>),)*
 		}
@@ -961,6 +960,15 @@ fn variant_struct_defs<'ctx>(
 	ctx.variants.iter().map(|(variant, data)| {
 		let v = data.input;
 		let common_derives = ctx.attrs.derives.iter();
+		let attrs = ctx.attrs.component_attrs.iter().filter(|item| {
+			if let NestedMeta::Meta(meta) = item {
+				let ident = &meta.path().segments.last().unwrap().ident;
+				if ["derive", "mutable", "storage"].iter().any(|s| ident == *s) {
+					return false;
+				}
+			}
+			true
+		});
 		let derives = common_derives.chain(data.derives.iter());
 		(
 			*variant,
@@ -970,6 +978,7 @@ fn variant_struct_defs<'ctx>(
 					quote! {
 						#[automatically_derived]
 						#[derive(#(#derives),*)]
+						#( #[#attrs] )*
 						pub struct #variant {
 							#(pub #fields,)*
 						}
@@ -980,6 +989,7 @@ fn variant_struct_defs<'ctx>(
 					quote! {
 						#[automatically_derived]
 						#[derive(#(#derives),*)]
+						#( #[#attrs] )*
 						pub struct #variant ( #(pub #fields,)* );
 					}
 				}
@@ -987,6 +997,7 @@ fn variant_struct_defs<'ctx>(
 					quote! {
 						#[automatically_derived]
 						#[derive(#(#derives),*)]
+						#( #[#attrs] )*
 						pub struct #variant;
 					}
 				}

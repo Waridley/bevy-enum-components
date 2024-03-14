@@ -3,7 +3,6 @@
 pub use bevy_ecs;
 use std::marker::PhantomData;
 
-use bevy_ecs::world::EntityWorldMut;
 use bevy_ecs::{
 	component::{ComponentId, ComponentStorage, StorageType, Tick},
 	entity::Entity,
@@ -11,7 +10,7 @@ use bevy_ecs::{
 	query::{QueryData, QueryFilter, ReadOnlyQueryData, Without, WorldQuery},
 	storage::TableRow,
 	system::EntityCommands,
-	world::unsafe_world_cell::UnsafeWorldCell,
+	world::{unsafe_world_cell::UnsafeWorldCell, EntityWorldMut},
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -400,8 +399,11 @@ pub type WithoutVariant<T> = Without<Variant<T>>;
 mod private {
 	use super::EnumComponentVariant;
 	use bevy_ecs::component::Component;
+	#[cfg(feature = "reflect")]
+	use bevy_ecs::prelude::ReflectComponent;
 
 	#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+	#[cfg_attr(feature = "reflect", derive(bevy_reflect::Reflect), reflect(Component))]
 	pub struct Variant<T: EnumComponentVariant>(pub(crate) T);
 
 	impl<T: EnumComponentVariant> Component for Variant<T> {
@@ -431,6 +433,34 @@ pub unsafe fn insert_variant<V: EnumComponentVariant>(cmds: &mut EntityCommands,
 #[doc(hidden)]
 pub unsafe fn world_insert_variant<V: EnumComponentVariant>(world: &mut EntityWorldMut, value: V) {
 	world.insert(Variant(value));
+}
+
+#[cfg(feature = "reflect")]
+pub mod reflect {
+	// TODO: generate functions for adding all variants of and EnumComponent
+
+	use crate::{private::Variant, EnumComponentVariant};
+	use bevy_reflect::{FromReflect, Reflect, TypePath, TypeRegistry};
+
+	pub fn register_variant<V: EnumComponentVariant + Reflect + FromReflect + TypePath>(
+		reg: &mut TypeRegistry,
+	) {
+		reg.register::<Variant<V>>();
+	}
+
+	pub trait AppEnumReflectExt {
+		fn register_variant<V: EnumComponentVariant + Reflect + FromReflect + TypePath>(
+			&mut self,
+		) -> &mut Self;
+	}
+
+	impl AppEnumReflectExt for bevy_app::App {
+		fn register_variant<V: EnumComponentVariant + Reflect + FromReflect + TypePath>(
+			&mut self,
+		) -> &mut Self {
+			self.register_type::<Variant<V>>()
+		}
+	}
 }
 
 #[cfg(test)]

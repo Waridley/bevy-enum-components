@@ -7,9 +7,14 @@ license = "MIT OR Apache-2.0"
 [workspace]
 members = ["macros"]
 
+[features]
+reflect = ["bevy_reflect", "bevy_app"]
+
 [dependencies]
 macros = { package = "sond-bevy-enum-components-macros", path = "macros" }
 bevy_ecs = "0.13"
+bevy_app = { version = "0.13.0", optional = true }
+bevy_reflect = { version = "0.13.0", optional = true }
 
 [dev-dependencies]
 sond-bevy-enum-components = { version = "0.1.0", path = "." }
