@@ -692,8 +692,8 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 				#query::init_state(world)
 			}
 
-			fn get_state(world: &World) -> Option<Self::State> {
-				#query::get_state(world)
+			fn get_state(components: &::#_crate::bevy_ecs::component::Components) -> Option<Self::State> {
+				#query::get_state(components)
 			}
 
 			fn matches_component_set(
@@ -814,8 +814,8 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				#query_mut::init_state(world)
 			}
 
-			fn get_state(world: &World) -> Option<Self::State> {
-				#query_mut::get_state(world)
+			fn get_state(components: &::#_crate::bevy_ecs::component::Components) -> Option<Self::State> {
+				#query_mut::get_state(components)
 			}
 
 			fn matches_component_set(
@@ -868,19 +868,19 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 			.as_ref()
 			.map(|lit| match lit {
 				Lit::Str(s) => match &*s.value() {
-					"SparseSet" => quote! { ::#_crate::bevy_ecs::component::SparseStorage },
-					"Table" => quote! { ::#_crate::bevy_ecs::component::TableStorage },
+					"SparseSet" => quote! { ::#_crate::bevy_ecs::component::StorageType::SparseSet },
+					"Table" => quote! { ::#_crate::bevy_ecs::component::StorageType::Table },
 					s => panic!("Unknown storage type: {s}"),
 				},
 				other => panic!("Unexpected literal: {other:?}"),
 			})
-			.unwrap_or_else(|| quote! { ::#_crate::bevy_ecs::component::TableStorage });
+			.unwrap_or_else(|| quote! { ::#_crate::bevy_ecs::component::StorageType::Table });
 
 		quote! {
 			impl ::#_crate::EnumComponentVariant for #variant {
 				type Enum = #main_enum;
 				type State = ::#_crate::EnumVariantIndex<#wo>;
-				type Storage = #storage;
+				const STORAGE_TYPE: ::#_crate::bevy_ecs::component::StorageType = #storage;
 
 				fn tag() -> <Self::Enum as EnumComponent>::Tag {
 					<Self::Enum as EnumComponent>::Tag::#variant
@@ -895,11 +895,11 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 					}
 				}
 
-				fn get_state(world: &World) -> Option<Self::State> {
+				fn get_state(components: &::#_crate::bevy_ecs::component::Components) -> Option<Self::State> {
 					Some(::#_crate::EnumVariantIndex {
-						with: #variant::get_component(world)?,
+						with: #variant::get_component(components)?,
 						without: [
-							#(#excluded::get_component(world)?,)*
+							#(#excluded::get_component(components)?,)*
 						],
 					})
 				}

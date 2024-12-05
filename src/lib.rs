@@ -4,7 +4,7 @@ pub use bevy_ecs;
 use std::marker::PhantomData;
 
 use bevy_ecs::{
-	component::{ComponentId, ComponentStorage, StorageType, Tick},
+	component::{ComponentId, StorageType, Tick},
 	entity::Entity,
 	prelude::World,
 	query::{QueryData, QueryFilter, ReadOnlyQueryData, Without, WorldQuery},
@@ -12,6 +12,7 @@ use bevy_ecs::{
 	system::EntityCommands,
 	world::{unsafe_world_cell::UnsafeWorldCell, EntityWorldMut},
 };
+use bevy_ecs::component::Components;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct EnumVariantIndex<const WO: usize> {
@@ -91,18 +92,18 @@ impl EntityWorldEnumMut for EntityWorldMut<'_> {
 pub trait EnumComponentVariant: Send + Sync + 'static {
 	type Enum: EnumComponent;
 	type State: Send + Sync + 'static;
-	type Storage: ComponentStorage;
+	const STORAGE_TYPE: StorageType;
 
 	fn tag() -> <Self::Enum as EnumComponent>::Tag;
 	fn init_state(world: &mut bevy_ecs::world::World) -> Self::State;
-	fn get_state(world: &bevy_ecs::world::World) -> Option<Self::State>;
+	fn get_state(world: &bevy_ecs::component::Components) -> Option<Self::State>;
 	fn init_component(world: &mut bevy_ecs::world::World) -> ComponentId
 	where
 		Self: Sized,
 	{
 		world.init_component::<Variant<Self>>()
 	}
-	fn get_component(world: &bevy_ecs::world::World) -> Option<ComponentId>
+	fn get_component(world: &bevy_ecs::component::Components) -> Option<ComponentId>
 	where
 		Self: Sized,
 	{
@@ -154,7 +155,7 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		<&Variant<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 	}
 
-	const IS_DENSE: bool = match T::Storage::STORAGE_TYPE {
+	const IS_DENSE: bool = match T::STORAGE_TYPE {
 		StorageType::Table => true,
 		StorageType::SparseSet => false,
 	};
@@ -198,7 +199,7 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		<T as EnumComponentVariant>::init_state(world)
 	}
 
-	fn get_state(world: &World) -> Option<Self::State> {
+	fn get_state(world: &Components) -> Option<Self::State> {
 		<T as EnumComponentVariant>::get_state(world)
 	}
 
@@ -248,7 +249,7 @@ where
 		<&mut Variant<T>>::init_fetch(world, &state.with, last_change_tick, change_tick)
 	}
 
-	const IS_DENSE: bool = match T::Storage::STORAGE_TYPE {
+	const IS_DENSE: bool = match T::STORAGE_TYPE {
 		StorageType::Table => true,
 		StorageType::SparseSet => false,
 	};
@@ -292,7 +293,7 @@ where
 		<T as EnumComponentVariant>::init_state(world)
 	}
 
-	fn get_state(world: &bevy_ecs::world::World) -> Option<Self::State> {
+	fn get_state(world: &bevy_ecs::component::Components) -> Option<Self::State> {
 		<T as EnumComponentVariant>::get_state(world)
 	}
 
@@ -341,7 +342,7 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 	) -> Self::Fetch<'w> {
 	}
 
-	const IS_DENSE: bool = match T::Storage::STORAGE_TYPE {
+	const IS_DENSE: bool = match T::STORAGE_TYPE {
 		StorageType::Table => true,
 		StorageType::SparseSet => false,
 	};
@@ -382,7 +383,7 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		<T as EnumComponentVariant>::init_state(world)
 	}
 
-	fn get_state(world: &World) -> Option<Self::State> {
+	fn get_state(world: &Components) -> Option<Self::State> {
 		<T as EnumComponentVariant>::get_state(world)
 	}
 
@@ -398,7 +399,7 @@ pub type WithoutVariant<T> = Without<Variant<T>>;
 
 mod private {
 	use super::EnumComponentVariant;
-	use bevy_ecs::component::Component;
+	use bevy_ecs::component::{Component, StorageType};
 	#[cfg(feature = "reflect")]
 	use bevy_ecs::prelude::ReflectComponent;
 
@@ -407,7 +408,7 @@ mod private {
 	pub struct Variant<T: EnumComponentVariant>(pub(crate) T);
 
 	impl<T: EnumComponentVariant> Component for Variant<T> {
-		type Storage = <T as EnumComponentVariant>::Storage;
+		const STORAGE_TYPE: StorageType = <T as EnumComponentVariant>::STORAGE_TYPE;
 	}
 }
 
