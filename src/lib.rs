@@ -101,7 +101,7 @@ pub trait EnumComponentVariant: Send + Sync + 'static {
 	where
 		Self: Sized,
 	{
-		world.init_component::<Variant<Self>>()
+		world.register_component::<Variant<Self>>()
 	}
 	fn get_component(world: &bevy_ecs::component::Components) -> Option<ComponentId>
 	where
@@ -113,10 +113,10 @@ pub trait EnumComponentVariant: Send + Sync + 'static {
 	where
 		Self: Sized,
 	{
-		cmds.add(|id, world: &mut World| self.dispatch_to_world(&mut world.entity_mut(id)));
+		cmds.queue(|id, world: &mut World| self.dispatch_to_world(&mut world.entity_mut(id)));
 	}
 	fn remove_from(cmds: &mut EntityCommands) {
-		cmds.add(|id, world: &mut World| Self::remove_from_world(&mut world.entity_mut(id)));
+		cmds.queue(|id, world: &mut World| Self::remove_from_world(&mut world.entity_mut(id)));
 	}
 	fn dispatch_to_world(self, world: &mut EntityWorldMut);
 	fn remove_from_world(world: &mut EntityWorldMut);
@@ -145,7 +145,11 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
 		item
 	}
-
+	
+	fn shrink_fetch<'wlong: 'wshort, 'wshort>(fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {
+		fetch
+	}
+	
 	unsafe fn init_fetch<'w>(
 		world: UnsafeWorldCell<'w>,
 		state: &Self::State,
@@ -189,7 +193,7 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		state: &Self::State,
 		access: &mut bevy_ecs::query::FilteredAccess<bevy_ecs::component::ComponentId>,
 	) {
-		access.add_read(state.with);
+		access.add_component_read(state.with);
 		for id in state.without {
 			access.and_without(id)
 		}
@@ -239,7 +243,11 @@ where
 	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
 		item
 	}
-
+	
+	fn shrink_fetch<'wlong: 'wshort, 'wshort>(fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {
+		fetch
+	}
+	
 	unsafe fn init_fetch<'w>(
 		world: UnsafeWorldCell<'w>,
 		state: &Self::State,
@@ -283,7 +291,7 @@ where
 		state: &Self::State,
 		access: &mut bevy_ecs::query::FilteredAccess<bevy_ecs::component::ComponentId>,
 	) {
-		access.add_write(state.with);
+		access.add_component_write(state.with);
 		for id in state.without {
 			access.and_without(id)
 		}
@@ -307,7 +315,7 @@ where
 
 pub struct WithVariant<T: EnumComponentVariant>(PhantomData<T>);
 
-impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> QueryFilter
+unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> QueryFilter
 	for WithVariant<T>
 {
 	const IS_ARCHETYPAL: bool = true;
@@ -332,7 +340,9 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		_item: bevy_ecs::query::QueryItem<'wlong, Self>,
 	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
 	}
-
+	
+	fn shrink_fetch<'wlong: 'wshort, 'wshort>(_fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {}
+	
 	#[inline]
 	unsafe fn init_fetch<'w>(
 		_world: UnsafeWorldCell<'w>,
@@ -373,7 +383,7 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		state: &Self::State,
 		access: &mut bevy_ecs::query::FilteredAccess<bevy_ecs::component::ComponentId>,
 	) {
-		access.add_read(state.with);
+		access.add_component_read(state.with);
 		for id in state.without {
 			access.and_without(id)
 		}

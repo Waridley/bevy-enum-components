@@ -646,7 +646,13 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 					#(#shrinks,)*
 				}
 			}
-
+			
+			fn shrink_fetch<'wlong: 'wshort, 'wshort>(
+				fetch: Self::Fetch<'wlong>,
+			) -> Self::Fetch<'wshort> {
+				fetch
+			}
+			
 			unsafe fn init_fetch<'w>(
 				world: ::#_crate::bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell<'w>,
 				state: &Self::State,
@@ -768,6 +774,12 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				match item {
 					#(#shrinks,)*
 				}
+			}
+
+			fn shrink_fetch<'wlong: 'wshort, 'wshort>(
+				fetch: Self::Fetch<'wlong>,
+			) -> Self::Fetch<'wshort> {
+				fetch
 			}
 
 			unsafe fn init_fetch<'w>(

@@ -12,10 +12,10 @@ reflect = ["bevy_reflect", "bevy_app"]
 
 [dependencies]
 macros = { package = "sond-bevy-enum-components-macros", path = "macros" }
-bevy_ecs = "0.14.2"
-bevy_app = { version = "0.14.2", optional = true }
-bevy_reflect = { version = "0.14.2", optional = true }
+bevy_ecs = "0.15.3"
+bevy_app = { version = "0.15.3", optional = true }
+bevy_reflect = { version = "0.15.3", optional = true }
 
 [dev-dependencies]
 sond-bevy-enum-components = { version = "0.1.0", path = "." }
-bevy = { version = "0.13", default-features = false }
+bevy = { version = "0.15.3", default-features = false }
