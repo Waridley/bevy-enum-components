@@ -4,7 +4,7 @@ pub use bevy_ecs;
 use std::marker::PhantomData;
 
 use bevy_ecs::{
-	component::{ComponentId, StorageType, Tick},
+	component::{ComponentId, Components, StorageType, Tick},
 	entity::Entity,
 	prelude::World,
 	query::{QueryData, QueryFilter, ReadOnlyQueryData, Without, WorldQuery},
@@ -12,7 +12,6 @@ use bevy_ecs::{
 	system::EntityCommands,
 	world::{unsafe_world_cell::UnsafeWorldCell, EntityWorldMut},
 };
-use bevy_ecs::component::Components;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct EnumVariantIndex<const WO: usize> {
@@ -145,11 +144,11 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
 		item
 	}
-	
+
 	fn shrink_fetch<'wlong: 'wshort, 'wshort>(fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {
 		fetch
 	}
-	
+
 	unsafe fn init_fetch<'w>(
 		world: UnsafeWorldCell<'w>,
 		state: &Self::State,
@@ -243,11 +242,11 @@ where
 	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
 		item
 	}
-	
+
 	fn shrink_fetch<'wlong: 'wshort, 'wshort>(fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {
 		fetch
 	}
-	
+
 	unsafe fn init_fetch<'w>(
 		world: UnsafeWorldCell<'w>,
 		state: &Self::State,
@@ -340,9 +339,10 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		_item: bevy_ecs::query::QueryItem<'wlong, Self>,
 	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
 	}
-	
-	fn shrink_fetch<'wlong: 'wshort, 'wshort>(_fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {}
-	
+
+	fn shrink_fetch<'wlong: 'wshort, 'wshort>(_fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {
+	}
+
 	#[inline]
 	unsafe fn init_fetch<'w>(
 		_world: UnsafeWorldCell<'w>,

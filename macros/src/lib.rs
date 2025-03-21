@@ -395,7 +395,7 @@ fn world_query_items(ctx: &Context) -> impl ToTokens {
 			}
 		})
 		.chain({
-			let nones = std::iter::repeat(quote! { None }).take(len);
+			let nones = std::iter::repeat_n(quote! { None }, len);
 			[
 				quote! {
 					( #(#nones),* ) => panic!("No {} variant components exist", stringify!(#main_enum))
@@ -485,7 +485,7 @@ fn world_query_item_mut_decls(ctx: &Context) -> impl ToTokens {
 			}
 		})
 		.chain({
-			let nones = ::std::iter::repeat(quote! { None }).take(len);
+			let nones = ::std::iter::repeat_n(quote! { None }, len);
 			[
 				quote! {
 					( #(#nones),* ) => panic!("No {} variant components exist", stringify!(#main_enum))
@@ -646,13 +646,13 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 					#(#shrinks,)*
 				}
 			}
-			
+
 			fn shrink_fetch<'wlong: 'wshort, 'wshort>(
 				fetch: Self::Fetch<'wlong>,
 			) -> Self::Fetch<'wshort> {
 				fetch
 			}
-			
+
 			unsafe fn init_fetch<'w>(
 				world: ::#_crate::bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell<'w>,
 				state: &Self::State,
@@ -880,7 +880,9 @@ fn variant_world_query_read_impl(ctx: &Context) -> impl ToTokens {
 			.as_ref()
 			.map(|lit| match lit {
 				Lit::Str(s) => match &*s.value() {
-					"SparseSet" => quote! { ::#_crate::bevy_ecs::component::StorageType::SparseSet },
+					"SparseSet" => {
+						quote! { ::#_crate::bevy_ecs::component::StorageType::SparseSet }
+					}
 					"Table" => quote! { ::#_crate::bevy_ecs::component::StorageType::Table },
 					s => panic!("Unknown storage type: {s}"),
 				},
