@@ -630,14 +630,9 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 	let world_query_impl = quote! {
 		#[automatically_derived]
 		unsafe impl ::#_crate::bevy_ecs::query::QueryData for #main_enum {
+			const IS_READ_ONLY: bool = true;
 			type ReadOnly = Self;
-		}
-
-		#[automatically_derived]
-		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #main_enum {
 			type Item<'a> = #item<'a>;
-			type Fetch<'a> = #fetch<'a>;
-			type State = #state;
 
 			fn shrink<'wlong: 'wshort, 'wshort>(
 				item: ::#_crate::bevy_ecs::query::QueryItem<'wlong, Self>,
@@ -646,6 +641,20 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 					#(#shrinks,)*
 				}
 			}
+
+			unsafe fn fetch<'w>(
+				fetch: &mut Self::Fetch<'w>,
+				entity: Entity,
+				table_row: ::#_crate::bevy_ecs::storage::TableRow,
+			) -> Self::Item<'w> {
+				#query::fetch(fetch, entity, table_row).into()
+			}
+		}
+
+		#[automatically_derived]
+		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #main_enum {
+			type Fetch<'a> = #fetch<'a>;
+			type State = #state;
 
 			fn shrink_fetch<'wlong: 'wshort, 'wshort>(
 				fetch: Self::Fetch<'wlong>,
@@ -680,15 +689,6 @@ fn world_query_read_impl(ctx: &Context) -> impl ToTokens {
 			) {
 				#query::set_table(fetch, state, table)
 			}
-
-			unsafe fn fetch<'w>(
-				fetch: &mut Self::Fetch<'w>,
-				entity: Entity,
-				table_row: ::#_crate::bevy_ecs::storage::TableRow,
-			) -> Self::Item<'w> {
-				#query::fetch(fetch, entity, table_row).into()
-			}
-
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {
 				#query::update_component_access(state, access)
@@ -759,14 +759,9 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 	let world_query_mut_impl = quote! {
 		#[automatically_derived]
 		unsafe impl ::#_crate::bevy_ecs::query::QueryData for #query_mut_struct {
+			const IS_READ_ONLY: bool = false;
 			type ReadOnly = #main_enum;
-		}
-
-		#[automatically_derived]
-		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #query_mut_struct {
 			type Item<'a> = #item_mut<'a>;
-			type Fetch<'a> = #fetch_mut<'a>;
-			type State = #state;
 
 			fn shrink<'wlong: 'wshort, 'wshort>(
 				item: ::#_crate::bevy_ecs::query::QueryItem<'wlong, Self>,
@@ -775,6 +770,20 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 					#(#shrinks,)*
 				}
 			}
+
+			unsafe fn fetch<'w>(
+				fetch: &mut Self::Fetch<'w>,
+				entity: Entity,
+				table_row: ::#_crate::bevy_ecs::storage::TableRow,
+			) -> Self::Item<'w> {
+				#query_mut::fetch(fetch, entity, table_row).into()
+			}
+		}
+
+		#[automatically_derived]
+		unsafe impl ::#_crate::bevy_ecs::query::WorldQuery for #query_mut_struct {
+			type Fetch<'a> = #fetch_mut<'a>;
+			type State = #state;
 
 			fn shrink_fetch<'wlong: 'wshort, 'wshort>(
 				fetch: Self::Fetch<'wlong>,
@@ -808,14 +817,6 @@ fn world_query_mut_impl(ctx: &Context) -> impl ToTokens {
 				table: &'w ::#_crate::bevy_ecs::storage::Table,
 			) {
 				#query_mut::set_table(fetch, state, table)
-			}
-
-			unsafe fn fetch<'w>(
-				fetch: &mut Self::Fetch<'w>,
-				entity: Entity,
-				table_row: ::#_crate::bevy_ecs::storage::TableRow,
-			) -> Self::Item<'w> {
-				#query_mut::fetch(fetch, entity, table_row).into()
 			}
 
 			fn update_component_access(state: &Self::State, access: &mut ::#_crate::bevy_ecs::query::FilteredAccess<::#_crate::bevy_ecs::component::ComponentId>) {

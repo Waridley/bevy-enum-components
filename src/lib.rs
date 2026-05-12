@@ -6,7 +6,6 @@ use std::marker::PhantomData;
 use bevy_ecs::{
 	component::{ComponentId, Components, StorageType, Tick},
 	entity::Entity,
-	prelude::World,
 	query::{QueryData, QueryFilter, ReadOnlyQueryData, Without, WorldQuery},
 	storage::TableRow,
 	system::EntityCommands,
@@ -112,10 +111,10 @@ pub trait EnumComponentVariant: Send + Sync + 'static {
 	where
 		Self: Sized,
 	{
-		cmds.queue(|id, world: &mut World| self.dispatch_to_world(&mut world.entity_mut(id)));
+		cmds.queue(|mut entity: EntityWorldMut| self.dispatch_to_world(&mut entity));
 	}
 	fn remove_from(cmds: &mut EntityCommands) {
-		cmds.queue(|id, world: &mut World| Self::remove_from_world(&mut world.entity_mut(id)));
+		cmds.queue(|mut entity: EntityWorldMut| Self::remove_from_world(&mut entity));
 	}
 	fn dispatch_to_world(self, world: &mut EntityWorldMut);
 	fn remove_from_world(world: &mut EntityWorldMut);
@@ -129,21 +128,28 @@ pub struct ERef<'w, T: EnumComponentVariant>(PhantomData<&'w T>);
 unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> QueryData
 	for ERef<'_, T>
 {
+	const IS_READ_ONLY: bool = true;
 	type ReadOnly = Self;
+	type Item<'a> = &'a T;
+
+	fn shrink<'wlong: 'wshort, 'wshort>(item: Self::Item<'wlong>) -> Self::Item<'wshort> {
+		item
+	}
+
+	unsafe fn fetch<'w>(
+		fetch: &mut Self::Fetch<'w>,
+		entity: bevy_ecs::entity::Entity,
+		table_row: TableRow,
+	) -> Self::Item<'w> {
+		&<&Variant<T>>::fetch(fetch, entity, table_row).0
+	}
 }
 
 unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> WorldQuery
 	for ERef<'_, T>
 {
-	type Item<'a> = &'a T;
 	type Fetch<'a> = <&'a Variant<T> as WorldQuery>::Fetch<'a>;
 	type State = T::State;
-
-	fn shrink<'wlong: 'wshort, 'wshort>(
-		item: bevy_ecs::query::QueryItem<'wlong, Self>,
-	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
-		item
-	}
 
 	fn shrink_fetch<'wlong: 'wshort, 'wshort>(fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {
 		fetch
@@ -178,14 +184,6 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		table: &'w bevy_ecs::storage::Table,
 	) {
 		<&Variant<T>>::set_table(fetch, &state.with, table)
-	}
-
-	unsafe fn fetch<'w>(
-		fetch: &mut Self::Fetch<'w>,
-		entity: bevy_ecs::entity::Entity,
-		table_row: TableRow,
-	) -> Self::Item<'w> {
-		&<&Variant<T>>::fetch(fetch, entity, table_row).0
 	}
 
 	fn update_component_access(
@@ -226,22 +224,29 @@ pub struct EMut<'w, T: EnumComponentVariantMut>(PhantomData<&'w mut T>);
 unsafe impl<'v, T: EnumComponentVariantMut<State = EnumVariantIndex<WO>>, const WO: usize> QueryData
 	for EMut<'v, T>
 {
+	const IS_READ_ONLY: bool = false;
 	type ReadOnly = ERef<'v, T>;
+	type Item<'a> = bevy_ecs::world::Mut<'a, T>;
+
+	fn shrink<'wlong: 'wshort, 'wshort>(item: Self::Item<'wlong>) -> Self::Item<'wshort> {
+		item
+	}
+
+	unsafe fn fetch<'w>(
+		fetch: &mut Self::Fetch<'w>,
+		entity: bevy_ecs::entity::Entity,
+		table_row: TableRow,
+	) -> Self::Item<'w> {
+		<&mut Variant<T>>::fetch(fetch, entity, table_row).map_unchanged(|it| &mut it.0)
+	}
 }
 
 unsafe impl<'v, T: EnumComponentVariantMut, const WO: usize> WorldQuery for EMut<'v, T>
 where
 	T: EnumComponentVariant<State = EnumVariantIndex<WO>>,
 {
-	type Item<'a> = bevy_ecs::world::Mut<'a, T>;
 	type Fetch<'a> = <&'a mut Variant<T> as bevy_ecs::query::WorldQuery>::Fetch<'a>;
 	type State = T::State;
-
-	fn shrink<'wlong: 'wshort, 'wshort>(
-		item: bevy_ecs::query::QueryItem<'wlong, Self>,
-	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
-		item
-	}
 
 	fn shrink_fetch<'wlong: 'wshort, 'wshort>(fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {
 		fetch
@@ -276,14 +281,6 @@ where
 		table: &'w bevy_ecs::storage::Table,
 	) {
 		<&mut Variant<T>>::set_table(fetch, &state.with, table)
-	}
-
-	unsafe fn fetch<'w>(
-		fetch: &mut Self::Fetch<'w>,
-		entity: bevy_ecs::entity::Entity,
-		table_row: TableRow,
-	) -> Self::Item<'w> {
-		<&mut Variant<T>>::fetch(fetch, entity, table_row).map_unchanged(|it| &mut it.0)
 	}
 
 	fn update_component_access(
@@ -331,14 +328,8 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usize> WorldQuery
 	for WithVariant<T>
 {
-	type Item<'a> = ();
 	type Fetch<'a> = ();
 	type State = T::State;
-
-	fn shrink<'wlong: 'wshort, 'wshort>(
-		_item: bevy_ecs::query::QueryItem<'wlong, Self>,
-	) -> bevy_ecs::query::QueryItem<'wshort, Self> {
-	}
 
 	fn shrink_fetch<'wlong: 'wshort, 'wshort>(_fetch: Self::Fetch<'wlong>) -> Self::Fetch<'wshort> {
 	}
@@ -370,13 +361,6 @@ unsafe impl<T: EnumComponentVariant<State = EnumVariantIndex<WO>>, const WO: usi
 		_state: &Self::State,
 		_table: &'w bevy_ecs::storage::Table,
 	) {
-	}
-
-	unsafe fn fetch<'w>(
-		_fetch: &mut Self::Fetch<'w>,
-		_entity: bevy_ecs::entity::Entity,
-		_table_row: TableRow,
-	) -> Self::Item<'w> {
 	}
 
 	fn update_component_access(
@@ -419,6 +403,7 @@ mod private {
 
 	impl<T: EnumComponentVariant> Component for Variant<T> {
 		const STORAGE_TYPE: StorageType = <T as EnumComponentVariant>::STORAGE_TYPE;
+		type Mutability = bevy_ecs::component::Mutable;
 	}
 }
 
